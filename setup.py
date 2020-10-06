@@ -15,7 +15,13 @@ setup(
     download_url='https://github.com/anthromorphic-ai/serpentmonkee/archive/0.4.tar.gz',
     # Keywords that define your package best
     keywords=['SOME', 'MEANINGFULL', 'KEYWORDS'],
-    install_requires=[            # I get to this in a second
+    install_requires=[
+        'neo4j==1.7.6',
+        'requests==2.23.0',
+        'python-dateutil==2.8.1'
+
+
+
 
     ],
     classifiers=[
