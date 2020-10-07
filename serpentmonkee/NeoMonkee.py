@@ -19,7 +19,7 @@ class NeoMonkee:  # ------------------------------------------------------------
                     password=neo_pass,
                 ),
                 max_connection_lifetime=200,
-                encrypted=True,
+                # encrypted=True,
             )
 
     def readResults(self, query, **params):
