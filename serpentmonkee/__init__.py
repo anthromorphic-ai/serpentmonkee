@@ -1,6 +1,6 @@
 from serpentmonkee.GcpDocMonkee import GCPDocument
-from MonkeeRedis import MonkeeRedis
-from NeoMonkee import NeoMonkee
-from SecretMonkee import SecretMonkee
-import UtilsMonkee
-from UtilsMonkee import MonkeeTracker
+from serpentmonkee.MonkeeRedis import MonkeeRedis
+from serpentmonkee.NeoMonkee import NeoMonkee
+from serpentmonkee.SecretMonkee import SecretMonkee
+import serpentmonkee.UtilsMonkee as UtilsMonkee
+from serpentmonkee.UtilsMonkee import MonkeeTracker
