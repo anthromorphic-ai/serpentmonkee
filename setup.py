@@ -2,11 +2,11 @@ from distutils.core import setup
 setup(
     name='serpentmonkee',         # How you named your package folder (MyLib)
     packages=['serpentmonkee'],   # Chose the same as "name"
-    version='1.2',      # Start with a small number and increase it with every change you make
+    version='2.0',      # Start with a small number and increase it with every change you make
     # Chose a license from here: https://help.github.com/articles/licensing-a-repository
     license='MIT',
     # Give a short description about your library
-    description='works with neo4j 4.1.1',
+    description='works with neo4j x',
     author='author',                   # Type in your name
     author_email='serpentmonkee@monkee.ai',      # Type in your E-Mail
     # Provide either the link to your github or to your website
@@ -16,7 +16,7 @@ setup(
     # Keywords that define your package best
     keywords=['SOME', 'MEANINGFULL', 'KEYWORDS'],
     install_requires=[
-        'neo4j==4.1.1',
+        'neo4j',
         'requests==2.23.0',
         'python-dateutil==2.8.1'
 

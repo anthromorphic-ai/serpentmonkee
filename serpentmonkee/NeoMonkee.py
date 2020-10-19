@@ -22,7 +22,7 @@ class NeoMonkee:  # ------------------------------------------------------------
                     max_connection_lifetime=200,
                     # encrypted=True,
                 )
-            if neoVersion[0] == '3':
+            if neoVersion[0] == '1':
                 self.neoDriver = GraphDatabase.driver(
                     uri=neo_uri,
                     auth=basic_auth(
