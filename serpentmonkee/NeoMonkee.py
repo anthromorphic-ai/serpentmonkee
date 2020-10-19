@@ -2,7 +2,7 @@
 
 import logging
 
-from neo4j import GraphDatabase, basic_auth
+from neo4j import GraphDatabase, basic_auth, __version__ as neoVersion
 from neo4j.exceptions import ServiceUnavailable
 
 
@@ -12,15 +12,26 @@ class NeoMonkee:  # ------------------------------------------------------------
 
     def makeNeoDriver(self, neo_uri, neo_user, neo_pass):
         if neo_uri is not None:
-            self.neoDriver = GraphDatabase.driver(
-                uri=neo_uri,
-                auth=basic_auth(
-                    user=neo_user,
-                    password=neo_pass,
-                ),
-                max_connection_lifetime=200,
-                # encrypted=True,
-            )
+            if neoVersion[0] == '4':
+                self.neoDriver = GraphDatabase.driver(
+                    uri=neo_uri,
+                    auth=basic_auth(
+                        user=neo_user,
+                        password=neo_pass,
+                    ),
+                    max_connection_lifetime=200,
+                    # encrypted=True,
+                )
+            if neoVersion[0] == '3':
+                self.neoDriver = GraphDatabase.driver(
+                    uri=neo_uri,
+                    auth=basic_auth(
+                        user=neo_user,
+                        password=neo_pass,
+                    ),
+                    max_connection_lifetime=200,
+                    encrypted=True,
+                )
 
     def readResults(self, query, **params):
         """
@@ -94,3 +105,7 @@ class NeoMonkee:  # ------------------------------------------------------------
         except ServiceUnavailable as e:
             logging.error(repr(e))
             raise
+
+
+if __name__ == '__main__':
+    print(neoVersion[0])
