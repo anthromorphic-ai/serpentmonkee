@@ -1,0 +1,10 @@
+1. to properly mimic CF calls in __main__:
+class Context:
+    def __init__(self):
+        self.event_id = "887fd621-a6ee-43cd-91cd-4cec84738109-0"
+        self.timestamp = "2020-09-29T16:48:26.567119Z"
+        self.event_type = "providers/cloud.firestore/eventTypes/document.write"
+        self.resource = "projects/monkee-dev/databases/(default)/documents/projects/BrilliantButtons/humans/000one/contentPool/000"
+
+
+2.

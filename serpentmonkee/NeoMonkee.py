@@ -19,7 +19,7 @@ class NeoMonkee:  # ------------------------------------------------------------
                         user=neo_user,
                         password=neo_pass,
                     ),
-                    max_connection_lifetime=200,
+                    #max_connection_lifetime=200,
                     # encrypted=True,
                 )
             if neoVersion[0] == '1':
@@ -29,7 +29,7 @@ class NeoMonkee:  # ------------------------------------------------------------
                         user=neo_user,
                         password=neo_pass,
                     ),
-                    max_connection_lifetime=200,
+                    #max_connection_lifetime=200,
                     encrypted=True,
                 )
 
