@@ -173,6 +173,9 @@ class NeoMonkee:  # ------------------------------------------------------------
                     if start_ts is not None and end_ts is not None:
                         timeDiff = end_ts - start_ts
                         duration = timeDiff.total_seconds()
+                    else:
+                        start_ts = datetime.now(timezone.utc)
+                        end_ts = datetime.now(timezone.utc)
                     sqlInsertQuery = """ INSERT INTO monkee.neo4j_queries(procedure_name,query_start,query_end,query_duration_in_s,cypher,params,batch,connector_uid,connector_start_time)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """
