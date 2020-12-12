@@ -3,7 +3,7 @@ setup(
     name='serpentmonkee',  # How you named your package folder (MyLib)
     packages=['serpentmonkee'],  # Chose the same as "name"
     version=
-    '2.4',  # Start with a small number and increase it with every change you make
+    '2.5',  # Start with a small number and increase it with every change you make
     # Chose a license from here: https://help.github.com/articles/licensing-a-repository
     license='MIT',
     # Give a short description about your library
@@ -14,7 +14,7 @@ setup(
     url='https://github.com/anthromorphic-ai/serpentmonkee',
     # I explain this later on
     download_url=
-    'https://github.com/anthromorphic-ai/serpentmonkee/archive/2.4.tar.gz',
+    'https://github.com/anthromorphic-ai/serpentmonkee/archive/2.5.tar.gz',
     # Keywords that define your package best
     keywords=['SOME', 'MEANINGFULL', 'KEYWORDS'],
     install_requires=['neo4j', 'requests==2.23.0', 'python-dateutil==2.8.1'],
