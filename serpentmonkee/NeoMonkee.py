@@ -6,11 +6,17 @@ import uuid
 
 
 class NeoMonkee:  # --------------------------------------------------------------------
-    def __init__(self, neoDriver, sqlClient=None):
+    def __init__(self,
+                 neoDriver,
+                 sqlClient=None,
+                 callingCF=None,
+                 cfInstanceUid=None):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
         self.sqlClient = sqlClient
+        self.callingCF = callingCF
+        self.cfInstanceUid = cfInstanceUid
 
     def get_uuid(self):
         return str(uuid.uuid4())
@@ -176,8 +182,8 @@ class NeoMonkee:  # ------------------------------------------------------------
                     else:
                         start_ts = datetime.now(timezone.utc)
                         end_ts = datetime.now(timezone.utc)
-                    sqlInsertQuery = """ INSERT INTO monkee.neo4j_queries(procedure_name,query_start,query_end,query_duration_in_s,cypher,params,batch,connector_uid,connector_start_time)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    sqlInsertQuery = """ INSERT INTO monkee.neo4j_queries(procedure_name,query_start,query_end,query_duration_in_s,cypher,params,batch,connector_uid,connector_start_time,calling_cf,cf_instance_uid)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """
 
                     conn.execute(
@@ -185,13 +191,10 @@ class NeoMonkee:  # ------------------------------------------------------------
                         [
                             proc_name,
                             start_ts.strftime(timeFormat),
-                            end_ts.strftime(timeFormat),
-                            duration,
-                            cypher,
+                            end_ts.strftime(timeFormat), duration, cypher,
                             params,
-                            str(batch),
-                            self.driverUuid,
-                            self.driverStartedAt,
+                            str(batch), self.driverUuid, self.driverStartedAt,
+                            self.callingCF, self.cfInstanceUid
                         ],
                     )
         except Exception as e:
