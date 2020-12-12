@@ -6,17 +6,12 @@ import uuid
 
 
 class NeoMonkee:  # --------------------------------------------------------------------
-    def __init__(self,
-                 neoDriver,
-                 sqlClient=None,
-                 callingCF=None,
-                 cfInstanceUid=None):
+    def __init__(self, neoDriver, sqlClient=None, callingCF=None):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
         self.sqlClient = sqlClient
         self.callingCF = callingCF
-        self.cfInstanceUid = cfInstanceUid
 
     def get_uuid(self):
         return str(uuid.uuid4())
@@ -46,7 +41,7 @@ class NeoMonkee:  # ------------------------------------------------------------
                     encrypted=True,
                 )
 
-    def readResults(self, query, **params):
+    def readResults(self, query, cfInstanceUid='', **params):
         """
         Reads the results of a cypher query.
 
@@ -67,6 +62,7 @@ class NeoMonkee:  # ------------------------------------------------------------
             result = session.read_transaction(
                 self._inner,
                 query,
+                cfInstanceUid,
                 **params,
             )
 
@@ -76,18 +72,16 @@ class NeoMonkee:  # ------------------------------------------------------------
                        end_ts=end_ts,
                        cypher=query,
                        params=str(params),
-                       batch=str([]))
+                       batch=str([]),
+                       cfInstanceUid=cfInstanceUid)
         return result
 
-    def writeResults(self, query, **params):
+    def writeResults(self, query, cfInstanceUid='', **params):
         start_ts = datetime.now(timezone.utc)
         result = None
         with self.neoDriver.session() as session:
-            result = session.write_transaction(
-                self._inner,
-                query,
-                **params,
-            )
+            result = session.write_transaction(self._inner, query,
+                                               cfInstanceUid, **params)
 
         end_ts = datetime.now(timezone.utc)
         self.saveToSql(proc_name='writeResults',
@@ -95,25 +89,27 @@ class NeoMonkee:  # ------------------------------------------------------------
                        end_ts=end_ts,
                        cypher=query,
                        params=str(params),
-                       batch=str([]))
+                       batch=str([]),
+                       cfInstanceUid=cfInstanceUid)
         return result
 
-    def _inner(self, tx, query, params):
+    def _inner(self, tx, query, cfInstanceUid, params):
         result = tx.run(query, params)
 
         try:
             return [row for row in result]
         except ServiceUnavailable as e:
             self.saveToSql('_inner', None, None, repr(e),
-                           'ERROR: ServiceUnavailable', None)
+                           'ERROR: ServiceUnavailable', None, cfInstanceUid)
             logging.error(repr(e))
             raise
         except Exception as e:
-            self.saveToSql('_inner', None, None, repr(e), 'ERROR: Other', None)
+            self.saveToSql('_inner', None, None, repr(e), 'ERROR: Other', None,
+                           cfInstanceUid)
             logging.error(repr(e))
             raise
 
-    def writeResultsBatch(self, query, batch, **params):
+    def writeResultsBatch(self, query, batch, cfInstanceUid='', **params):
         """
         Runs a batch update.
 
@@ -137,8 +133,13 @@ class NeoMonkee:  # ------------------------------------------------------------
         write_results = None
         start_ts = datetime.now(timezone.utc)
         with self.neoDriver.session() as session:
-            write_results = session.write_transaction(self._innerBatch, query,
-                                                      batch, **params)
+            write_results = session.write_transaction(
+                self._innerBatch,
+                query,
+                batch,
+                cfInstanceUid,
+                **params,
+            )
 
         end_ts = datetime.now(timezone.utc)
         self.saveToSql(proc_name='writeResultsBatch',
@@ -146,10 +147,11 @@ class NeoMonkee:  # ------------------------------------------------------------
                        end_ts=end_ts,
                        cypher=query,
                        params=str(params),
-                       batch=str(batch))
+                       batch=str(batch),
+                       cfInstanceUid=cfInstanceUid)
         return write_results
 
-    def _innerBatch(self, tx, query, batch, params):
+    def _innerBatch(self, tx, query, batch, cfInstanceUid, params):
         result = tx.run(
             query,
             params,
@@ -161,14 +163,16 @@ class NeoMonkee:  # ------------------------------------------------------------
         except ServiceUnavailable as e:
             logging.error(repr(e))
             self.saveToSql('_innerBatch', None, None, repr(e),
-                           'ERROR: ServiceUnavailable', None)
+                           'ERROR: ServiceUnavailable', None, cfInstanceUid)
             raise
         except Exception as e:
-            self.saveToSql('_inner', None, None, repr(e), 'ERROR: Other', None)
+            self.saveToSql('_inner', None, None, repr(e), 'ERROR: Other', None,
+                           cfInstanceUid)
             logging.error(repr(e))
             raise
 
-    def saveToSql(self, proc_name, start_ts, end_ts, cypher, params, batch):
+    def saveToSql(self, proc_name, start_ts, end_ts, cypher, params, batch,
+                  cfInstanceUid):
         """inserts the payloads to the necessary SQL tables"""
         try:
             if self.sqlClient is not None:
@@ -194,7 +198,7 @@ class NeoMonkee:  # ------------------------------------------------------------
                             end_ts.strftime(timeFormat), duration, cypher,
                             params,
                             str(batch), self.driverUuid, self.driverStartedAt,
-                            self.callingCF, self.cfInstanceUid
+                            self.callingCF, cfInstanceUid
                         ],
                     )
         except Exception as e:
