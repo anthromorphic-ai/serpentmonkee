@@ -8,7 +8,7 @@ import random
 import uuid
 import copy
 from serpentmonkee import UtilsMonkee as um
-from neo4j.exceptions import CypherSyntaxError
+from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable
 
 # --------------------------------------------------------------------
 
@@ -55,12 +55,29 @@ class CypherTransactionBlock:
 
 
 class CypherTransactionBlockWorker:
-    def __init__(self, redisClient, neoMonkee):
+    def __init__(self, neoMonkee, cypherQueues):
         self.createdAt = datetime.now(timezone.utc)
-        self.redisClient = redisClient
         self.neoMonkee = neoMonkee
+        self.cypherQueues = cypherQueues
 
-    def executeBlock(self, ctBlock):
+    def popBlockFromWaitingQueues(self):
+        """
+        Fetches (LPOP) the next ctb from the queues
+        """
+        popped = self.cypherQueues.redisClient.blpop(
+            self.cypherQueues.cQNames, 1)
+        # popped = self.redisClient.lpop(self.queueName)
+
+        if not popped:
+            print("QUEUES ARE EMPTY_________________________________________")
+
+        dataFromRedis = json.loads(popped[1], cls=um.RoundTripDecoder)
+        print(f"Data read from Q:{dataFromRedis}")
+        ctb = CypherTransactionBlock(None, None, None, None)
+        ctb.makeFromSerial(dataFromRedis)
+        return ctb
+
+    def executeBlock(self, ctBlock: CypherTransactionBlock):
         """
         Executes all statments in the ctb as one transaction.
         Returns success boolean
@@ -74,6 +91,13 @@ class CypherTransactionBlockWorker:
         except CypherSyntaxError as e:
             print('CypherSyntaxError')
             print(repr(e))
+            self.cypherQueues.pushCtbToWaitingQ(
+                ctBlock)  # TEMP! just for testing
+            return False
+        except ServiceUnavailable as e:
+            print('ServiceUnavailable')
+            print(repr(e))
+            self.cypherQueues.pushCtbToWaitingQ(ctBlock)
             return False
         except Exception as e:
             print(repr(e))
@@ -84,5 +108,4 @@ class CypherTransactionBlockWorker:
         for statement in statements:
             results.append(tx.run(statement["cypher"],
                                   statement["parameters"]))
-
         return results
