@@ -27,6 +27,7 @@ class NeoMonkee:  # ------------------------------------------------------------
                         user=neo_user,
                         password=neo_pass,
                     ),
+                    max_transaction_retry_time=2
                     #max_connection_lifetime=200,
                     # encrypted=True,
                 )
@@ -39,7 +40,7 @@ class NeoMonkee:  # ------------------------------------------------------------
                     ),
                     #max_connection_lifetime=200,
                     encrypted=True,
-                )
+                    max_retry_time=2)
 
     def readResults(self, query, cfInstanceUid='', **params):
         """
