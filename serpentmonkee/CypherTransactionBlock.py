@@ -18,7 +18,8 @@ class CypherTransactionBlock:
                  priority=None,
                  statements=None,
                  transactionUid=None,
-                 origin=None):
+                 origin=None,
+                 callingCF=None):
         self.createdAt = datetime.now(timezone.utc)
         self.numRetries = 0
         self.lastUpdatedAt = datetime.now(timezone.utc)
@@ -29,6 +30,9 @@ class CypherTransactionBlock:
         self.runTime = None
         self.status = None
         self.errors = None
+        self.durations = []
+        self.callingCF = callingCF
+        self.timeInQ = None
 
         self.setJson()
 
@@ -43,7 +47,10 @@ class CypherTransactionBlock:
             "statements": self.statements,
             "runTime": self.runTime,
             "status": self.status,
-            "errors": self.errors
+            "errors": self.errors,
+            "durations": self.durations,
+            "callingCF": self.callingCF,
+            "timeInQ": self.timeInQ
         }
 
     def instanceToSerial(self):
@@ -64,6 +71,9 @@ class CypherTransactionBlock:
         self.runTime = um.getval(dict_, "runTime")
         self.status = um.getval(dict_, "status")
         self.errors = um.getval(dict_, "errors")
+        self.durations = um.getval(dict_, "durations")
+        self.callingCF = um.getval(dict_, "callingCF")
+        self.timeInQ = um.getval(dict_, "timeInQ")
         self.setJson()
 
 
@@ -72,6 +82,24 @@ class CypherTransactionBlockWorker:
         self.createdAt = datetime.now(timezone.utc)
         self.neoMonkee = neoMonkee
         self.cypherQueues = cypherQueues
+
+    def goToWork(self, forHowLong=30):
+        startTs = datetime.now(timezone.utc)
+        i = 0
+        howLong = 0
+        queuesAreEmpty = False
+        while howLong <= forHowLong and not queuesAreEmpty:
+            i += 1
+            howLong = um.dateDiff('sec', startTs, datetime.now(timezone.utc))
+            print(f'howLong = {howLong}')
+            ctb = self.popBlockFromWaitingQueues()
+            if ctb:
+                print(ctb.transactionUid)
+                self.executeBlock(ctb)
+            else:
+                queuesAreEmpty = True
+            if i % 50 == 0:
+                self.lookForExpiredWorkingBlocks()
 
     def popBlockFromWaitingQueues(self):
         """
@@ -138,12 +166,13 @@ class CypherTransactionBlockWorker:
             try:
                 with self.neoMonkee.neoDriver.session() as session:
                     startTs = datetime.now(timezone.utc)
-                    results = session.write_transaction(
+                    results, durations = session.write_transaction(
                         self._statementsAsTransaction, ctBlock.statements)
-                    print(results)
+                    # print(results)
                     endTs = datetime.now(timezone.utc)
                     elapsedSec = um.dateDiff('sec', startTs, endTs)
                     ctBlock.runTime = elapsedSec
+                    ctBlock.durations = durations
                     ctBlock.status = 'done'
 
                     self.removeBlockFromWorkingQueue(
@@ -158,8 +187,8 @@ class CypherTransactionBlockWorker:
                 ctBlock.errors = repr(e)
                 self.removeBlockFromWorkingQueue(ctBlock.instanceToSerial())
                 self.cypherQueues.pushCtbToCompletedQ(ctBlock)
-
                 return False
+
             except ServiceUnavailable as e:
                 print('ServiceUnavailable')
                 print(repr(e))
@@ -169,6 +198,7 @@ class CypherTransactionBlockWorker:
                 self.removeBlockFromWorkingQueue(ctBlock.instanceToSerial())
                 self.cypherQueues.pushCtbToWaitingQ(ctBlock)
                 return False
+
             except ClientError as e:
                 print('ClientError')
                 print(repr(e))
@@ -176,6 +206,7 @@ class CypherTransactionBlockWorker:
                 ctBlock.status = 'ClientError'
                 ctBlock.errors = repr(e)
                 self.removeBlockFromWorkingQueue(ctBlock.instanceToSerial())
+                ctBlock.setJson()
                 self.cypherQueues.pushCtbToCompletedQ(ctBlock)
                 return False
             """except Exception as e:
@@ -186,7 +217,27 @@ class CypherTransactionBlockWorker:
 
     def _statementsAsTransaction(self, tx, statements):
         results = []
+        duration = []
+        statementList = []
         for statement in statements:
-            results.append(tx.run(statement["cypher"],
-                                  statement["parameters"]))
-        return results
+            try:
+                startTs = datetime.now(timezone.utc)
+                res = tx.run(statement["cypher"],
+                             statement["parameters"])
+                results.append(res)
+                # for r in results:
+                #    print(r.data())
+                endTs = datetime.now(timezone.utc)
+                duration.append(um.dateDiff('sec', startTs, endTs))
+                statementList.append({"cypher": statement["cypher"], "parameters": statement["parameters"], "duration": um.dateDiff('sec', startTs, endTs),
+                                      "status": "OK", "error": None})
+            except Exception as e:
+                endTs = datetime.now(timezone.utc)
+                duration.append(um.dateDiff('sec', startTs, endTs))
+                print(repr(e))
+                statementList.append({"cypher": statement["cypher"], "parameters": statement["parameters"], "duration": um.dateDiff('sec', startTs, endTs),
+                                      "status": "ERROR", "error": repr(e)})
+
+                return False
+
+        return results, statementList
