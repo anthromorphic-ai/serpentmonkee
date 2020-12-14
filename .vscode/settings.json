@@ -1,3 +1,8 @@
 {
-    "python.pythonPath": "/Users/lwicverhoef/opt/anaconda3/bin/python"
+    "python.formatting.provider": "autopep8",
+    "python.pythonPath": "/Users/lwicverhoef/.pyenv/versions/3.7.1/bin/python3.7",
+    "python.formatting.autopep8Args": [
+        "--ignore",
+        "E402"
+    ]
 }
