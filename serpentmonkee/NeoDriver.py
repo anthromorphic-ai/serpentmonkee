@@ -11,7 +11,7 @@ from neo4j import GraphDatabase, basic_auth, __version__ as neoVersion
 from neo4j.exceptions import ServiceUnavailable
 import uuid
 
-from serpentmonkee import UtilsMonkee as um
+import UtilsMonkee as um
 from CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
 from CypherQueue import CypherQueue, CypherQueues
 import redis
