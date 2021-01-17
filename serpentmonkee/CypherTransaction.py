@@ -42,10 +42,10 @@ class CypherTransactionBlock:
         self.timeInQ = None
         self.setJson()
         self.sqlClient = sqlClient
-        self.registerChangeInSql('create')
-        self.redisKey = ''
         self.qTable = 'monkee.q'
         self.qLogTable = 'monkee.q_log'
+        self.registerChangeInSql('create')
+        self.redisKey = ''
 
     def setJson(self):
         self.json = {
