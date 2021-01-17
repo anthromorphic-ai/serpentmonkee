@@ -6,7 +6,6 @@ from serpentmonkee.SecretMonkee import SecretMonkee
 import serpentmonkee.UtilsMonkee as UtilsMonkee
 from serpentmonkee.UtilsMonkee import MonkeeTracker
 from serpentmonkee.PubSubMonkee import PubSubMonkee
-
 from serpentmonkee.CypherTransaction import CypherTransactionBlock
 from serpentmonkee.CypherTransaction import CypherTransactionBlockWorker
 from serpentmonkee.CypherQueue import CypherQueue, CypherQueues

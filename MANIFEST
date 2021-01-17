@@ -7,7 +7,6 @@ serpentmonkee/GcpDocMonkee.py
 serpentmonkee/MonkeeRedis.py
 serpentmonkee/NeoDriver.py
 serpentmonkee/NeoMonkee.py
-serpentmonkee/NeoMonkee_old.py
 serpentmonkee/PubSubMonkee.py
 serpentmonkee/SecretMonkee.py
 serpentmonkee/Serpent.py

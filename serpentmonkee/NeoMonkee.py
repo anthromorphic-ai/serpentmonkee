@@ -11,7 +11,6 @@ from neo4j import GraphDatabase, basic_auth, __version__ as neoVersion
 from neo4j.exceptions import ServiceUnavailable
 import uuid
 
-import UtilsMonkee as um
 from CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
 from CypherQueue import CypherQueue, CypherQueues
 import redis
@@ -126,7 +125,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
         if self.asyncStatements == []:
             print('XXX no statements to action')
         else:
-            guid = um.get_uuid()
+            guid = self.get_uuid()
 
             ctb = CypherTransactionBlock(priority=priority, statements=self.asyncStatements,
                                          transactionUid=guid, callingCF=self.callingCF, sqlClient=self.sqlClient)
