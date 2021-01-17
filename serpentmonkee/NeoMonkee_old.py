@@ -1,50 +1,17 @@
-# _METADATA_:Version: 20
-# _METADATA_:Timestamp: 2021-01-17 21:26:27.469550+00:00
-# _METADATA_:MD5: 1d26a56d8a45619d63b5715fb215c706
-# _METADATA_:Publish:                                                                      None
-
-
-# _METADATA_:
 import logging
 from datetime import datetime, timedelta, timezone
 from neo4j import GraphDatabase, basic_auth, __version__ as neoVersion
 from neo4j.exceptions import ServiceUnavailable
 import uuid
 
-from serpentmonkee import UtilsMonkee as um
-from CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
-from CypherQueue import CypherQueue, CypherQueues
-import redis
 
-from PubSubMonkee import PubSubMonkee
-
-
-class sNeoMonkee:  # --------------------------------------------------------------------
-
-    def __init__(self, neoDriver, redisClient, publisher, projectId, topicId, sqlTable, sqlClient=None, callingCF=None):
+class NeoMonkee:  # --------------------------------------------------------------------
+    def __init__(self, neoDriver, sqlClient=None, callingCF=None):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
         self.sqlClient = sqlClient
-        self.sqlTable = sqlTable
         self.callingCF = callingCF
-        self.redisClient = redisClient
-        self.db_fb = None
-        self.cypherQueues = self.makeCypherQueues()
-        self.asyncStatements = []
-        self.pubsub = PubSubMonkee(publisher, projectId, topicId)
-        self.cypherWorker = CypherTransactionBlockWorker(
-            self.neoDriver, self.cypherQueues, sqlClient=self.sqlClient, pubsub=self.pubsub)
-
-    def makeCypherQueues(self):
-        cQH = CypherQueue("cypherQ_High")
-        cQM = CypherQueue("cypherQ_Medium")
-        cQL = CypherQueue("cypherQ_Low")
-        wQ = CypherQueue("cypherWorking")
-        compQ = CypherQueue("cypherDone")
-        queues = [cQH, cQM, cQL]
-        return CypherQueues(redisClient=self.redisClient,
-                            cQueues=queues, workingQ=wQ, completedQ=compQ, fb_db=self.db_fb)
 
     def get_uuid(self):
         return str(uuid.uuid4())
@@ -61,7 +28,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
                         password=neo_pass,
                     ),
                     max_transaction_retry_time=2
-                    # max_connection_lifetime=200,
+                    #max_connection_lifetime=200,
                     # encrypted=True,
                 )
             if neoVersion[0] == '1':
@@ -71,23 +38,23 @@ class sNeoMonkee:  # -----------------------------------------------------------
                         user=neo_user,
                         password=neo_pass,
                     ),
-                    # max_connection_lifetime=200,
+                    #max_connection_lifetime=200,
                     encrypted=True,
                     max_retry_time=2)
 
-    def syncRead(self, query, cfInstanceUid='', **params):
+    def readResults(self, query, cfInstanceUid='', **params):
         """
         Reads the results of a cypher query.
 
             USAGE:
 
             query = '''
-                    MATCH (h:nodeType {_project: $projectname })
+                    MATCH (h:humans {_project: $projectname })
                     return h.uid as uid
                     '''
 
             params = {'projectname': 'Sandbox'}
-            res = neomnkee.syncRead(query=query, params=params)
+            res = neomnkee.readResults(query=query, params=params)
             for r in res:
                 print(r['uid'])
         """
@@ -101,7 +68,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
             )
 
         end_ts = datetime.now(timezone.utc)
-        self.saveToSql(proc_name='syncRead',
+        self.saveToSql(proc_name='readResults',
                        start_ts=start_ts,
                        end_ts=end_ts,
                        cypher=query,
@@ -110,33 +77,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
                        cfInstanceUid=cfInstanceUid)
         return result
 
-    def asyncWriteStatement(self, query, batch=[], cfInstanceUid='', **params):
-
-        if batch == []:
-            self.asyncStatements.append(
-                {"cypher": query, "parameters": params['params'], "ts": datetime.now(timezone.utc)})
-        else:
-            self.asyncStatements.append(
-                {"cypher": query, "parameters": params['params'], "batch": batch, "ts": datetime.now(timezone.utc)})
-
-    def asyncWrite(self, priority="M"):
-        """
-        batches all the async statements posted so far and sends it off to the cypherQueue identified by priority
-        """
-        if self.asyncStatements == []:
-            print('XXX no statements to action')
-        else:
-            guid = um.get_uuid()
-
-            ctb = CypherTransactionBlock(priority=priority, statements=self.asyncStatements,
-                                         transactionUid=guid, callingCF=self.callingCF, sqlClient=self.sqlClient)
-            self.cypherQueues.pushCtbToWaitingQ(ctb)
-            self.cypherQueues.getQLens()
-
-            # Sends a pubsub message to start the cypher worker CF
-            self.pubsub.publish_message('awaken')
-
-    def syncWrite(self, query, cfInstanceUid='', **params):
+    def writeResults(self, query, cfInstanceUid='', **params):
         start_ts = datetime.now(timezone.utc)
         result = None
         with self.neoDriver.session() as session:
@@ -144,7 +85,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
                                                cfInstanceUid, **params)
 
         end_ts = datetime.now(timezone.utc)
-        self.saveToSql(proc_name='syncWrite',
+        self.saveToSql(proc_name='writeResults',
                        start_ts=start_ts,
                        end_ts=end_ts,
                        cypher=query,
@@ -169,7 +110,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
             logging.error(repr(e))
             raise
 
-    def syncWriteBatch(self, query, batch, cfInstanceUid='', **params):
+    def writeResultsBatch(self, query, batch, cfInstanceUid='', **params):
         """
         Runs a batch update.
 
@@ -185,7 +126,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
                     '''
 
             params = {'projectname': 'Sandbox'}
-            res = neomnkee.syncWriteBatch(
+            res = neomnkee.writeResultsBatch(
                 query=query, params=params, batch=batch)
             for r in res:
                 print(r['uid'])
@@ -202,7 +143,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
             )
 
         end_ts = datetime.now(timezone.utc)
-        self.saveToSql(proc_name='syncWriteBatch',
+        self.saveToSql(proc_name='writeResultsBatch',
                        start_ts=start_ts,
                        end_ts=end_ts,
                        cypher=query,
@@ -246,7 +187,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
                     else:
                         start_ts = datetime.now(timezone.utc)
                         end_ts = datetime.now(timezone.utc)
-                    sqlInsertQuery = """ INSERT INTO """ + self.sqlTable + """(procedure_name,query_start,query_end,query_duration_in_s,cypher,params,batch,connector_uid,connector_start_time,calling_cf,cf_instance_uid)
+                    sqlInsertQuery = """ INSERT INTO monkee.neo4j_queries(procedure_name,query_start,query_end,query_duration_in_s,cypher,params,batch,connector_uid,connector_start_time,calling_cf,cf_instance_uid)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """
 
@@ -264,3 +205,7 @@ class sNeoMonkee:  # -----------------------------------------------------------
         except Exception as e:
             logging.error(repr(e))
             raise
+
+
+if __name__ == '__main__':
+    print(neoVersion[0])
