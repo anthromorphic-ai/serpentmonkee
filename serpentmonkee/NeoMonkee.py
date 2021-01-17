@@ -12,8 +12,8 @@ from neo4j.exceptions import ServiceUnavailable
 import uuid
 
 from serpentmonkee.PubSubMonkee import PubSubMonkee
-from CypherQueue import CypherQueue, CypherQueues
-from CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
+from serpentmonkee.CypherQueue import CypherQueue, CypherQueues
+from serpentmonkee.CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
 
 import redis
 

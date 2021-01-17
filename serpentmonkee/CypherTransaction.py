@@ -12,9 +12,9 @@ import sys
 import random
 import uuid
 import copy
-import UtilsMonkee as um
+import serpentmonkee.UtilsMonkee as um
 from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable, ClientError
-from PubSubMonkee import PubSubMonkee
+from serpentmonkee.PubSubMonkee import PubSubMonkee
 import logging
 # --------------------------------------------------------------------
 

@@ -10,13 +10,12 @@ from datetime import datetime, timedelta, timezone
 from neo4j import GraphDatabase, basic_auth, __version__ as neoVersion
 from neo4j.exceptions import ServiceUnavailable
 import uuid
-
-import UtilsMonkee as um
-from CypherQueue import CypherQueue, CypherQueues
-from CypherTransaction import CypherTransactionBlockWorker
 import redis
 
-from PubSubMonkee import PubSubMonkee
+import serpentmonkee.UtilsMonkee as um
+from serpentmonkee.CypherQueue import CypherQueue, CypherQueues
+from serpentmonkee.CypherTransaction import CypherTransactionBlockWorker
+from serpentmonkee.PubSubMonkee import PubSubMonkee
 
 
 class NeoDriver:  # --------------------------------------------------------------------
