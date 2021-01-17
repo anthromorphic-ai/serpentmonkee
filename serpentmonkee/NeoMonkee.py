@@ -11,11 +11,11 @@ from neo4j import GraphDatabase, basic_auth, __version__ as neoVersion
 from neo4j.exceptions import ServiceUnavailable
 import uuid
 
-from CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
-from CypherQueue import CypherQueue, CypherQueues
-import redis
-
 from PubSubMonkee import PubSubMonkee
+from CypherQueue import CypherQueue, CypherQueues
+from CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
+
+import redis
 
 
 class NeoMonkee:  # --------------------------------------------------------------------
