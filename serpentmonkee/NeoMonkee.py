@@ -18,7 +18,7 @@ import redis
 from PubSubMonkee import PubSubMonkee
 
 
-class sNeoMonkee:  # --------------------------------------------------------------------
+class NeoMonkee:  # --------------------------------------------------------------------
 
     def __init__(self, neoDriver, redisClient, publisher, projectId, topicId, sqlTable, sqlClient=None, callingCF=None):
         self.neoDriver = neoDriver

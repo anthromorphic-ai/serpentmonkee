@@ -232,23 +232,6 @@ class CypherTransactionBlock:
                     )
 
 
-class QueueCopyToSql:
-    def __init__(self, sqlClient, redisClient, queueName, batchSize=100, selectionA=1):
-        self.sqlClient = sqlClient
-        self.redisClient = redisClient
-        self.queueName = queueName
-        self.batchSize = batchSize
-        self.selectionA = selectionA
-
-        # self.goToWork()
-
-    # def goToWork(self, forHowLong=30):
-
-    #    qLen = self.redisClient.llen(self.queueName)
-    #    qList = self.redisClient.lrange(self.queueName, 0, qLen)
-    #    lenqlist = len(qList)
-
-
 class CypherTransactionBlockWorker:
     def __init__(self, neoDriver, cypherQueues, sqlClient, pubsub):
         self.createdAt = datetime.now(timezone.utc)

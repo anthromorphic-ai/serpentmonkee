@@ -12,14 +12,14 @@ from neo4j.exceptions import ServiceUnavailable
 import uuid
 
 import UtilsMonkee as um
-from CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
 from CypherQueue import CypherQueue, CypherQueues
+from CypherTransaction import CypherTransactionBlockWorker
 import redis
 
 from PubSubMonkee import PubSubMonkee
 
 
-class sNeoDriver:  # --------------------------------------------------------------------
+class NeoDriver:  # --------------------------------------------------------------------
     def __init__(self, neoDriver, redisClient, publisher, projectId, topicId, sqlClient=None, callingCF=None):
         self.neoDriver = neoDriver
         self.driverUuid = None
