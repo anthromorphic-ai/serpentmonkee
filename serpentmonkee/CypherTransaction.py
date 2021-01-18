@@ -240,7 +240,7 @@ class CypherTransactionBlockWorker:
         self.sqlClient = sqlClient
         self.pubsub = pubsub
 
-    def goToWork(self, forHowLong=60, inactivityBuffer=5):
+    def goToWork(self, forHowLong=60, inactivityBuffer=10):
         print(f'XXX goToWork. ForHowLong={forHowLong}')
         startTs = datetime.now(timezone.utc)
         i = 0
@@ -268,11 +268,12 @@ class CypherTransactionBlockWorker:
             print(f'Running for how long: {howLong}')
 
         if howLong >= forHowLong - inactivityBuffer and self.cypherQueues.totalInWaitingQueues > 0:
-            numFlares = self.cypherQueues.totalInWaitingQueues / 10
+            # numFlares = self.cypherQueues.totalInWaitingQueues / 10
 
-            for k in range(int(numFlares)):
-                print(f'sending flare {k}')
+            for k in range(3):
+                print(f'sending flare (max 3) {k}')
                 self.pubsub.publish_message('awaken')
+                time.sleep(0.5)
 
     def popBlockFromWaitingQueues(self):
         """
