@@ -15,7 +15,7 @@ setup(
     download_url='https://github.com/anthromorphic-ai/serpentmonkee/archive/2.97.tar.gz',
     # Keywords that define your package best
     keywords=['SOME', 'MEANINGFULL', 'KEYWORDS'],
-    install_requires=['redis', 'neo4j',
+    install_requires=['redis', 'neo4j==4.2.1',
                       'requests==2.23.0', 'python-dateutil==2.8.1'],
     classifiers=[
         # Chose either "3 - Alpha", "4 - Beta" or "5 - Production/Stable" as the current state of your package
