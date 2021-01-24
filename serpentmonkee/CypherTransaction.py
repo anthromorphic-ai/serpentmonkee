@@ -269,7 +269,7 @@ class CypherTransactionBlockWorker:
 
         if howLong >= forHowLong - inactivityBuffer and self.cypherQueues.totalInWaitingQueues > 0:
             # numFlares = self.cypherQueues.totalInWaitingQueues / 10
-
+            self.neoDriver.close()
             for k in range(3):
                 print(f'sending flare (max 3) {k}')
                 self.pubsub.publish_message('awaken')
@@ -435,10 +435,14 @@ class CypherTransactionBlockWorker:
             try:
                 startTs = datetime.now(timezone.utc)
                 if "batch" in statement:
+                    cyph = statement["cypher"]
+                    print(f'batch-mode statement[cypher] to be run: {cyph}')
                     res = tx.run(statement["cypher"],
                                  statement["parameters"],
                                  batch=statement["batch"])
                 else:
+                    cyph = statement["cypher"]
+                    print(f'statement[cypher] to be run: {cyph}')
                     res = tx.run(statement["cypher"],
                                  statement["parameters"])
                 results.append(res)
