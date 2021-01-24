@@ -187,7 +187,8 @@ class CypherTransactionBlock:
             elif newState == 'executeEnd':
                 sqlQuery = (
                     """ UPDATE """ + self.qTable + """ 
-                    SET exec_completed_at = %s
+                    SET exec_completed_at = %s,
+                    errors = case when errors is not null then 'None. Original error = ' || errors else null end
                     WHERE q_uid = %s"""
                 )
                 with self.sqlClient.connect() as conn:
