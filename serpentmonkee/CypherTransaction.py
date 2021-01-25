@@ -458,6 +458,4 @@ class CypherTransactionBlockWorker:
             #    statementList.append({"cypher": statement["cypher"], "parameters": statement["parameters"], "duration": um.dateDiff('sec', startTs, endTs),
             #                          "status": "ERROR", "error": repr(e)})
 
-            return False
-
         return results, statementList
