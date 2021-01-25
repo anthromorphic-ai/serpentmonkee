@@ -432,32 +432,32 @@ class CypherTransactionBlockWorker:
         duration = []
         statementList = []
         for statement in statements:
-            try:
-                startTs = datetime.now(timezone.utc)
-                if "batch" in statement:
-                    cyph = statement["cypher"][0:100]
-                    print(f'batch-mode statement[cypher] to be run: {cyph}')
-                    res = tx.run(statement["cypher"],
-                                 statement["parameters"],
-                                 batch=statement["batch"])
-                else:
-                    cyph = statement["cypher"][0:100]
-                    print(f'statement[cypher] to be run: {cyph}')
-                    res = tx.run(statement["cypher"],
-                                 statement["parameters"])
-                results.append(res)
+            # try:
+            startTs = datetime.now(timezone.utc)
+            if "batch" in statement:
+                cyph = statement["cypher"][0:100]
+                print(f'batch-mode statement[cypher] to be run: {cyph}')
+                res = tx.run(statement["cypher"],
+                             statement["parameters"],
+                             batch=statement["batch"])
+            else:
+                cyph = statement["cypher"][0:100]
+                print(f'statement[cypher] to be run: {cyph}')
+                res = tx.run(statement["cypher"],
+                             statement["parameters"])
+            results.append(res)
 
-                endTs = datetime.now(timezone.utc)
-                duration.append(um.dateDiff('sec', startTs, endTs))
-                statementList.append({"cypher": statement["cypher"], "parameters": statement["parameters"], "duration": um.dateDiff('sec', startTs, endTs),
-                                      "status": "OK", "error": None})
-            except Exception as e:
-                endTs = datetime.now(timezone.utc)
-                duration.append(um.dateDiff('sec', startTs, endTs))
-                logging.error(repr(e))
-                statementList.append({"cypher": statement["cypher"], "parameters": statement["parameters"], "duration": um.dateDiff('sec', startTs, endTs),
-                                      "status": "ERROR", "error": repr(e)})
+            endTs = datetime.now(timezone.utc)
+            duration.append(um.dateDiff('sec', startTs, endTs))
+            statementList.append({"cypher": statement["cypher"], "parameters": statement["parameters"], "duration": um.dateDiff('sec', startTs, endTs),
+                                  "status": "OK", "error": None})
+            # except Exception as e:
+            #    endTs = datetime.now(timezone.utc)
+            #    duration.append(um.dateDiff('sec', startTs, endTs))
+            #    logging.error(repr(e))
+            #    statementList.append({"cypher": statement["cypher"], "parameters": statement["parameters"], "duration": um.dateDiff('sec', startTs, endTs),
+            #                          "status": "ERROR", "error": repr(e)})
 
-                return False
+            return False
 
         return results, statementList
