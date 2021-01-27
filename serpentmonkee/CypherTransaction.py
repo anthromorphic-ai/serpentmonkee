@@ -26,7 +26,11 @@ class CypherTransactionBlock:
                  transactionUid=None,
                  origin=None,
                  callingCF=None,
-                 sqlClient=None):
+                 sqlClient=None,
+                 uid=None,
+                 appUid=None):
+        self.uid = uid
+        self.appUid = appUid
         self.createdAt = datetime.now(timezone.utc)
         self.numRetries = 0
         self.lastUpdatedAt = datetime.now(timezone.utc)
@@ -61,7 +65,9 @@ class CypherTransactionBlock:
             "errors": self.errors,
             "durations": self.durations,
             "callingCF": self.callingCF,
-            "timeInQ": self.timeInQ
+            "timeInQ": self.timeInQ,
+            "uid": self.uid,
+            "appUid": self.appUid
         }
 
     def instanceToSerial(self):
@@ -85,6 +91,8 @@ class CypherTransactionBlock:
         self.durations = um.getval(dict_, "durations")
         self.callingCF = um.getval(dict_, "callingCF")
         self.timeInQ = um.getval(dict_, "timeInQ")
+        self.uid = um.getval(dict_, "uid")
+        self.appUid = um.getval(dict_, "appUid")
         self.setJson()
 
     def registerChangeInSql(self, newState, error=None):
@@ -108,14 +116,16 @@ class CypherTransactionBlock:
 
             if newState == 'create':
                 sqlInsertQuery = (
-                    """ INSERT INTO """ + self.qTable + """(q_uid, ctb_serial, created_at)
-                select %s,%s,%s
+                    """ INSERT INTO """ + self.qTable + """(app_uid, uid, q_uid, ctb_serial, created_at)
+                select %s,%s,%s,%s,%s
                 where not exists (select * from """ + self.qTable + """ where q_uid=%s)"""
                 )
                 with self.sqlClient.connect() as conn:
                     conn.execute(
                         sqlInsertQuery,
                         [
+                            self.appUid,
+                            self.uid,
                             self.transactionUid,
                             json.dumps(self.json, cls=um.RoundTripEncoder),
                             self.createdAt,

@@ -118,7 +118,7 @@ class NeoMonkee:  # ------------------------------------------------------------
             self.asyncStatements.append(
                 {"cypher": query, "parameters": params['params'], "batch": batch, "ts": datetime.now(timezone.utc)})
 
-    def asyncWrite(self, priority="M"):
+    def asyncWrite(self, priority="M", appUid=None, docUid=None):
         """
         batches all the async statements posted so far and sends it off to the cypherQueue identified by priority
         """
@@ -128,7 +128,7 @@ class NeoMonkee:  # ------------------------------------------------------------
             guid = self.get_uuid()
 
             ctb = CypherTransactionBlock(priority=priority, statements=self.asyncStatements,
-                                         transactionUid=guid, callingCF=self.callingCF, sqlClient=self.sqlClient)
+                                         transactionUid=guid, callingCF=self.callingCF, sqlClient=self.sqlClient, uid=docUid, appUid=appUid)
             self.cypherQueues.pushCtbToWaitingQ(ctb)
             self.cypherQueues.getQLens()
 
