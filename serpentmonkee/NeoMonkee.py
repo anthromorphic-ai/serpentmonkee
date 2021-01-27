@@ -128,7 +128,7 @@ class NeoMonkee:  # ------------------------------------------------------------
             guid = self.get_uuid()
 
             ctb = CypherTransactionBlock(priority=priority, statements=self.asyncStatements,
-                                         transactionUid=guid, callingCF=self.callingCF, sqlClient=self.sqlClient, uid=docUid, appUid=appUid)
+                                         transactionUid=guid, callingCF=self.callingCF, sqlClient=self.sqlClient, originDocUid=docUid, appUid=appUid)
             self.cypherQueues.pushCtbToWaitingQ(ctb)
             self.cypherQueues.getQLens()
 
@@ -261,5 +261,5 @@ class NeoMonkee:  # ------------------------------------------------------------
                         ],
                     )
         except Exception as e:
-            logging.error(repr(e))
+            logging.error("saveToSql: {}".format(repr(e)))
             raise

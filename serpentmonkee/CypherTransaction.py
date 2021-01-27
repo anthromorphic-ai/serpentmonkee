@@ -27,9 +27,9 @@ class CypherTransactionBlock:
                  origin=None,
                  callingCF=None,
                  sqlClient=None,
-                 uid=None,
+                 originDocUid=None,
                  appUid=None):
-        self.uid = uid
+        self.docUid = originDocUid
         self.appUid = appUid
         self.createdAt = datetime.now(timezone.utc)
         self.numRetries = 0
@@ -66,7 +66,7 @@ class CypherTransactionBlock:
             "durations": self.durations,
             "callingCF": self.callingCF,
             "timeInQ": self.timeInQ,
-            "uid": self.uid,
+            "docUid": self.docUid,
             "appUid": self.appUid
         }
 
@@ -91,156 +91,161 @@ class CypherTransactionBlock:
         self.durations = um.getval(dict_, "durations")
         self.callingCF = um.getval(dict_, "callingCF")
         self.timeInQ = um.getval(dict_, "timeInQ")
-        self.uid = um.getval(dict_, "uid")
+        self.docUid = um.getval(dict_, "docUid")
         self.appUid = um.getval(dict_, "appUid")
+
         self.setJson()
 
     def registerChangeInSql(self, newState, error=None):
         """
         Registers the change in the state of this CTB in the monkee.q table in SQL
         """
-        if self.transactionUid is not None:
-            sqlInsertQuery = (
-                """ INSERT INTO """ + self.qLogTable + """(q_uid, status)
-            values ( %s,%s )
-            """
-            )
-            with self.sqlClient.connect() as conn:
-                conn.execute(
-                    sqlInsertQuery,
-                    [
-                        self.transactionUid,
-                        newState
-                    ],
-                )
-
-            if newState == 'create':
+        try:
+            if self.transactionUid is not None:
                 sqlInsertQuery = (
-                    """ INSERT INTO """ + self.qTable + """(app_uid, uid, q_uid, ctb_serial, created_at)
-                select %s,%s,%s,%s,%s
-                where not exists (select * from """ + self.qTable + """ where q_uid=%s)"""
+                    """ INSERT INTO """ + self.qLogTable + """(q_uid, status)
+                values ( %s,%s )
+                """
                 )
                 with self.sqlClient.connect() as conn:
                     conn.execute(
                         sqlInsertQuery,
                         [
-                            self.appUid,
-                            self.uid,
                             self.transactionUid,
-                            json.dumps(self.json, cls=um.RoundTripEncoder),
-                            self.createdAt,
-                            self.transactionUid
-                        ],
-                    )
-            elif newState == 'toWaiting':
-                sqlQuery = (
-                    """ UPDATE """ + self.qTable + """ 
-                    SET waiting_q_at = %s
-                    WHERE q_uid = %s"""
-                )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
-
-                        ],
-                    )
-            elif newState == 'toWorking':
-                sqlQuery = (
-                    """ UPDATE """ + self.qTable + """ 
-                    SET working_q_at = %s
-                    WHERE q_uid = %s"""
-                )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
-
+                            newState
                         ],
                     )
 
-            elif newState == 'toCompleted':
-                sqlQuery = (
-                    """ UPDATE """ + self.qTable + """ 
-                    SET compl_q_at = %s
-                    WHERE q_uid = %s"""
-                )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
-
-                        ],
+                if newState == 'create':
+                    sqlInsertQuery = (
+                        """ INSERT INTO """ + self.qTable + """(app_uid, uid, q_uid, ctb_serial, created_at, cf)
+                    select %s,%s,%s,%s,%s,%s
+                    where not exists (select * from """ + self.qTable + """ where q_uid=%s)"""
                     )
-
-            elif newState == 'executeStart':
-                sqlQuery = (
-                    """ UPDATE """ + self.qTable + """ 
-                    SET exec_started_at = %s
-                    WHERE q_uid = %s"""
-                )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
-
-                        ],
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlInsertQuery,
+                            [
+                                self.appUid,
+                                self.docUid,
+                                self.transactionUid,
+                                json.dumps(self.json, cls=um.RoundTripEncoder),
+                                self.createdAt,
+                                self.callingCF,
+                                self.transactionUid
+                            ],
+                        )
+                elif newState == 'toWaiting':
+                    sqlQuery = (
+                        """ UPDATE """ + self.qTable + """ 
+                        SET waiting_q_at = %s
+                        WHERE q_uid = %s"""
                     )
-            elif newState == 'executeEnd':
-                sqlQuery = (
-                    """ UPDATE """ + self.qTable + """ 
-                    SET exec_completed_at = %s,
-                    errors = case when errors is not null then 'None. Original error = ' || errors else null end
-                    WHERE q_uid = %s"""
-                )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlQuery,
+                            [
+                                datetime.now(timezone.utc),
+                                self.transactionUid
 
-                        ],
+                            ],
+                        )
+                elif newState == 'toWorking':
+                    sqlQuery = (
+                        """ UPDATE """ + self.qTable + """ 
+                        SET working_q_at = %s
+                        WHERE q_uid = %s"""
                     )
-            elif newState == 'error':
-                sqlQuery = (
-                    """ UPDATE """ + self.qTable + """ 
-                    SET errors = %s
-                    WHERE q_uid = %s"""
-                )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            error,
-                            self.transactionUid
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlQuery,
+                            [
+                                datetime.now(timezone.utc),
+                                self.transactionUid
 
-                        ],
+                            ],
+                        )
+
+                elif newState == 'toCompleted':
+                    sqlQuery = (
+                        """ UPDATE """ + self.qTable + """ 
+                        SET compl_q_at = %s
+                        WHERE q_uid = %s"""
                     )
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlQuery,
+                            [
+                                datetime.now(timezone.utc),
+                                self.transactionUid
 
-            elif newState == 'outOfWorkingQ':
-                sqlQuery = (
-                    """ UPDATE """ + self.qTable + """ 
-                    SET out_of_working_q_at = %s
-                    WHERE q_uid = %s"""
-                )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
+                            ],
+                        )
 
-                        ],
+                elif newState == 'executeStart':
+                    sqlQuery = (
+                        """ UPDATE """ + self.qTable + """ 
+                        SET exec_started_at = %s
+                        WHERE q_uid = %s"""
                     )
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlQuery,
+                            [
+                                datetime.now(timezone.utc),
+                                self.transactionUid
+
+                            ],
+                        )
+                elif newState == 'executeEnd':
+                    sqlQuery = (
+                        """ UPDATE """ + self.qTable + """ 
+                        SET exec_completed_at = %s,
+                        errors = case when errors is not null then 'None. Original error = ' || errors else null end
+                        WHERE q_uid = %s"""
+                    )
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlQuery,
+                            [
+                                datetime.now(timezone.utc),
+                                self.transactionUid
+
+                            ],
+                        )
+                elif newState == 'error':
+                    sqlQuery = (
+                        """ UPDATE """ + self.qTable + """ 
+                        SET errors = %s
+                        WHERE q_uid = %s"""
+                    )
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlQuery,
+                            [
+                                error,
+                                self.transactionUid
+
+                            ],
+                        )
+
+                elif newState == 'outOfWorkingQ':
+                    sqlQuery = (
+                        """ UPDATE """ + self.qTable + """ 
+                        SET out_of_working_q_at = %s
+                        WHERE q_uid = %s"""
+                    )
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlQuery,
+                            [
+                                datetime.now(timezone.utc),
+                                self.transactionUid
+
+                            ],
+                        )
+        except Exception as e:
+            logging.error("registerChangeInSql: {}".format(repr(e)))
 
 
 class CypherTransactionBlockWorker:
