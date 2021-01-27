@@ -19,7 +19,7 @@ from serpentmonkee.PubSubMonkee import PubSubMonkee
 
 
 class NeoDriver:  # --------------------------------------------------------------------
-    def __init__(self, neoDriver, redisClient, publisher, projectId, topicId, sqlClient=None, callingCF=None, maxConnectionLifetime=3600):
+    def __init__(self, neoDriver=None, redisClient=None, publisher=None, projectId=None, topicId=None, sqlClient=None, callingCF=None, maxConnectionLifetime=3600):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
@@ -27,7 +27,7 @@ class NeoDriver:  # ------------------------------------------------------------
         self.callingCF = callingCF
         self.redisClient = redisClient
         self.db_fb = None
-        self.cypherQueues = self.makeCypherQueues()
+        # self.cypherQueues = self.makeCypherQueues()
         self.asyncStatements = []
         self.pubsub = PubSubMonkee(publisher, projectId, topicId)
         self.maxConnectionLifetime = maxConnectionLifetime
@@ -49,6 +49,7 @@ class NeoDriver:  # ------------------------------------------------------------
         if neo_uri is not None:
             self.driverUuid = self.get_uuid()
             self.driverStartedAt = datetime.now(timezone.utc)
+
             if neoVersion[0] == '4':
                 self.neoDriver = GraphDatabase.driver(
                     uri=neo_uri,
@@ -70,5 +71,3 @@ class NeoDriver:  # ------------------------------------------------------------
                     max_connection_lifetime=self.maxConnectionLifetime,
                     encrypted=True,
                     max_retry_time=2)
-            self.cypherWorker = CypherTransactionBlockWorker(
-                self.neoDriver, self.cypherQueues, sqlClient=self.sqlClient, pubsub=self.pubsub)
