@@ -432,6 +432,7 @@ class CypherTransactionBlockWorker:
                     ctBlock.registerChangeInSql('outOfWorkingQ')
                 ctBlock.setJson()
                 self.cypherQueues.pushCtbToCompletedQ(ctBlock)
+                ctBlock.registerChangeInSql('error', repr(e))
                 return False
 
             except Exception as e:
