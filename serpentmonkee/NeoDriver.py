@@ -19,7 +19,8 @@ from serpentmonkee.PubSubMonkee import PubSubMonkee
 
 
 class NeoDriver:  # --------------------------------------------------------------------
-    def __init__(self, neoDriver=None, redisClient=None, publisher=None, projectId=None, topicId=None, sqlClient=None, callingCF=None, maxConnectionLifetime=3600):
+    def __init__(self, neoDriver=None, redisClient=None, publisher=None, projectId=None, topicId=None, sqlClient=None, callingCF=None, maxConnectionLifetime=3600,
+                 maxTransactionRetryTime=2):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
@@ -31,6 +32,7 @@ class NeoDriver:  # ------------------------------------------------------------
         self.asyncStatements = []
         self.pubsub = PubSubMonkee(publisher, projectId, topicId)
         self.maxConnectionLifetime = maxConnectionLifetime
+        self.maxTransactionRetryTime = maxTransactionRetryTime
 
     def makeCypherQueues(self):
         cQH = CypherQueue("cypherQ_High")
@@ -57,9 +59,9 @@ class NeoDriver:  # ------------------------------------------------------------
                         user=neo_user,
                         password=neo_pass,
                     ),
-                    max_transaction_retry_time=2,
+                    max_transaction_retry_time=self.maxTransactionRetryTime,
                     max_connection_lifetime=self.maxConnectionLifetime,
-                    # encrypted=True,
+
                 )
             if neoVersion[0] == '1':
                 self.neoDriver = GraphDatabase.driver(
@@ -70,4 +72,4 @@ class NeoDriver:  # ------------------------------------------------------------
                     ),
                     max_connection_lifetime=self.maxConnectionLifetime,
                     encrypted=True,
-                    max_retry_time=2)
+                    max_retry_time=self.maxTransactionRetryTime)

@@ -130,6 +130,8 @@ class NeoMonkee:  # ------------------------------------------------------------
             ctb = CypherTransactionBlock(priority=priority, statements=self.asyncStatements,
                                          transactionUid=guid, callingCF=self.callingCF, sqlClient=self.sqlClient, originDocUid=docUid, appUid=appUid)
             self.cypherQueues.pushCtbToWaitingQ(ctb)
+            # Resets the asyncStatements: this "asyncWrite" is seen as a push the statements to queue and start with a clean list
+            self.asyncStatements = []
             self.cypherQueues.getQLens()
 
             # Sends a pubsub message to start the cypher worker CF
