@@ -229,6 +229,22 @@ class CypherTransactionBlock:
                             ],
                         )
 
+                elif newState == 'givenUp':
+                    sqlQuery = (
+                        """ UPDATE """ + self.qTable + """ 
+                        SET errors = %s||'  '||errors
+                        WHERE q_uid = %s"""
+                    )
+                    with self.sqlClient.connect() as conn:
+                        conn.execute(
+                            sqlQuery,
+                            [
+                                error,
+                                self.transactionUid
+
+                            ],
+                        )
+
                 elif newState == 'outOfWorkingQ':
                     sqlQuery = (
                         """ UPDATE """ + self.qTable + """ 
@@ -430,8 +446,15 @@ class CypherTransactionBlockWorker:
                 rem = self.removeBlockFromWorkingQueue(matchingSerial)
                 if rem > 0:
                     ctBlock.registerChangeInSql('outOfWorkingQ')
-                self.cypherQueues.pushCtbToWaitingQ(ctBlock)
-                ctBlock.registerChangeInSql('error', repr(e))
+                ctBlock.setJson()
+                if ctBlock.numRetries <= 50:
+                    print(f'>>>>ctBlock.numRetries={ctBlock.numRetries}')
+                    self.cypherQueues.pushCtbToWaitingQ(ctBlock)
+                    ctBlock.registerChangeInSql('error', repr(e))
+                else:
+                    self.cypherQueues.pushCtbToCompletedQ(ctBlock)
+                    ctBlock.registerChangeInSql('givenUp', 'GIVEN UP')
+
                 return False
 
             except ClientError as e:
