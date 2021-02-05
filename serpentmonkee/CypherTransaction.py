@@ -13,7 +13,7 @@ import random
 import uuid
 import copy
 import serpentmonkee.UtilsMonkee as um
-from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable, ClientError
+from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable, ClientError, ConstraintError
 from serpentmonkee.PubSubMonkee import PubSubMonkee
 import logging
 # --------------------------------------------------------------------
@@ -413,6 +413,19 @@ class CypherTransactionBlockWorker:
                 logging.error(repr(e))
                 ctBlock.numRetries += 1
                 ctBlock.status = 'ServiceUnavailable'
+                ctBlock.errors = repr(e)
+                rem = self.removeBlockFromWorkingQueue(matchingSerial)
+                if rem > 0:
+                    ctBlock.registerChangeInSql('outOfWorkingQ')
+                self.cypherQueues.pushCtbToWaitingQ(ctBlock)
+                ctBlock.registerChangeInSql('error', repr(e))
+                return False
+
+            except ConstraintError as e:
+                print('ConstraintError')
+                logging.error(repr(e))
+                ctBlock.numRetries += 1
+                ctBlock.status = 'ConstraintError'
                 ctBlock.errors = repr(e)
                 rem = self.removeBlockFromWorkingQueue(matchingSerial)
                 if rem > 0:
