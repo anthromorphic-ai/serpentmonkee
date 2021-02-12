@@ -157,5 +157,5 @@ class CypherQueues:
         Pushes (RPUSH) the given ctb back to one of the queues
         """
         ctBlock.lastUpdatedAt = datetime.now(timezone.utc)
-        self.pushCypherQueryToQueue(
-            ctBlock, self.completedQ.queueName, isCompleted=True)
+        ctBlock.registerChangeInSql('toCompleted')
+        #self.pushCypherQueryToQueue(ctBlock, self.completedQ.queueName, isCompleted=True)
