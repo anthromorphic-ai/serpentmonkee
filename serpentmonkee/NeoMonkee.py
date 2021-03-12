@@ -20,7 +20,7 @@ from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock, MonkeeSQLblockHandl
 
 class NeoMonkee:  # --------------------------------------------------------------------
 
-    def __init__(self, neoDriver, redisClient, publisher, projectId, topicId, sqlTable, sqlClient=None, callingCF=None):
+    def __init__(self, neoDriver, redisClient, publisher, projectId, topicId, sqlTable, sqlClient=None, callingCF=None, environmentName=None):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
@@ -33,7 +33,7 @@ class NeoMonkee:  # ------------------------------------------------------------
         self.asyncStatements = []
         self.pubsub = PubSubMonkee(publisher, projectId, topicId)
         self.cypherWorker = CypherTransactionBlockWorker(
-            self.neoDriver, self.cypherQueues, sqlClient=self.sqlClient, pubsub=self.pubsub)
+            self.neoDriver, self.cypherQueues, pubsub=self.pubsub, redisClient=redisClient, environmentName=environmentName)
 
         self.sqlBlockHandler = MonkeeSQLblockHandler(environmentName=projectId,
                                                      redis_client=redisClient,

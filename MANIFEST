@@ -5,6 +5,8 @@ serpentmonkee/CypherQueue.py
 serpentmonkee/CypherTransaction.py
 serpentmonkee/GcpDocMonkee.py
 serpentmonkee/MonkeeRedis.py
+serpentmonkee/MonkeeSqlMessenger.py
+serpentmonkee/MonkeeSqlWorker.py
 serpentmonkee/NeoDriver.py
 serpentmonkee/NeoMonkee.py
 serpentmonkee/PubSubMonkee.py
