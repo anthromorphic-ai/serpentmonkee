@@ -15,6 +15,7 @@ import copy
 import serpentmonkee.UtilsMonkee as um
 from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable, ClientError, ConstraintError
 from serpentmonkee.PubSubMonkee import PubSubMonkee
+from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock, MonkeeSQLblockHandler
 import logging
 # --------------------------------------------------------------------
 
@@ -26,11 +27,12 @@ class CypherTransactionBlock:
                  transactionUid=None,
                  origin=None,
                  callingCF=None,
-                 sqlClient=None,
                  originDocUid=None,
-                 appUid=None):
+                 appUid=None,
+                 sqlBlockHandler=None):
         self.docUid = originDocUid
         self.appUid = appUid
+        self.sqlBlockHandler = sqlBlockHandler
         self.createdAt = datetime.now(timezone.utc)
         self.numRetries = 0
         self.lastUpdatedAt = datetime.now(timezone.utc)
@@ -45,7 +47,6 @@ class CypherTransactionBlock:
         self.callingCF = callingCF
         self.timeInQ = None
         self.setJson()
-        self.sqlClient = sqlClient
         self.qTable = 'monkee.q'
         self.qLogTable = 'monkee.q_log'
         self.registerChangeInSql('create')
@@ -99,22 +100,22 @@ class CypherTransactionBlock:
     def registerChangeInSql(self, newState, error=None):
         """
         Registers the change in the state of this CTB in the monkee.q table in SQL
+
         """
 
-        if self.transactionUid is not None:
+        if self.transactionUid and self.sqlBlockHandler:
             sqlInsertQuery = (
                 """ INSERT INTO """ + self.qLogTable + """(q_uid, status)
             values ( %s,%s )
             """
             )
-            with self.sqlClient.connect() as conn:
-                conn.execute(
-                    sqlInsertQuery,
-                    [
-                        self.transactionUid,
-                        newState
-                    ],
-                )
+            sqlInsertList = [self.transactionUid,
+                             newState]
+
+            sqlb = MonkeeSQLblock(query=sqlInsertQuery,
+                                  insertList=sqlInsertList,
+                                  queryTypeId='')
+            self.sqlBlockHandler.toQ(sqlb, priority='L')
 
             if newState == 'create':
                 sqlInsertQuery = (
@@ -122,49 +123,52 @@ class CypherTransactionBlock:
                 select %s,%s,%s,%s,%s,%s
                 where not exists (select * from """ + self.qTable + """ where q_uid=%s)"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlInsertQuery,
-                        [
-                            self.appUid,
-                            self.docUid,
-                            self.transactionUid,
-                            json.dumps(self.json, cls=um.RoundTripEncoder),
-                            self.createdAt,
-                            self.callingCF,
-                            self.transactionUid
-                        ],
-                    )
+                sqlInsertList = [
+                    self.appUid,
+                    self.docUid,
+                    self.transactionUid,
+                    json.dumps(self.json, cls=um.RoundTripEncoder),
+                    self.createdAt,
+                    self.callingCF,
+                    self.transactionUid
+                ]
+
+                sqlb = MonkeeSQLblock(query=sqlInsertQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='H')
+
             elif newState == 'toWaiting':
                 sqlQuery = (
                     """ UPDATE """ + self.qTable + """ 
                     SET waiting_q_at = %s
                     WHERE q_uid = %s"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
+                sqlInsertList = [
+                    datetime.now(timezone.utc),
+                    self.transactionUid
+                ]
 
-                        ],
-                    )
+                sqlb = MonkeeSQLblock(query=sqlQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='L')
+
             elif newState == 'toWorking':
                 sqlQuery = (
                     """ UPDATE """ + self.qTable + """ 
                     SET working_q_at = %s
                     WHERE q_uid = %s"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
+                sqlInsertList = [
+                    datetime.now(timezone.utc),
+                    self.transactionUid
+                ]
 
-                        ],
-                    )
+                sqlb = MonkeeSQLblock(query=sqlQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='L')
 
             elif newState == 'toCompleted':
                 sqlQuery = (
@@ -172,15 +176,15 @@ class CypherTransactionBlock:
                     SET compl_q_at = %s
                     WHERE q_uid = %s"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
+                sqlInsertList = [
+                    datetime.now(timezone.utc),
+                    self.transactionUid
+                ]
 
-                        ],
-                    )
+                sqlb = MonkeeSQLblock(query=sqlQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='L')
 
             elif newState == 'executeStart':
                 sqlQuery = (
@@ -188,15 +192,16 @@ class CypherTransactionBlock:
                     SET exec_started_at = %s
                     WHERE q_uid = %s"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
+                sqlInsertList = [
+                    datetime.now(timezone.utc),
+                    self.transactionUid
+                ]
 
-                        ],
-                    )
+                sqlb = MonkeeSQLblock(query=sqlQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='L')
+
             elif newState == 'executeEnd':
                 sqlQuery = (
                     """ UPDATE """ + self.qTable + """ 
@@ -204,30 +209,31 @@ class CypherTransactionBlock:
                     errors = case when errors is not null then 'None. Original error = ' || errors else null end
                     WHERE q_uid = %s"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
+                sqlInsertList = [
+                    datetime.now(timezone.utc),
+                    self.transactionUid
+                ]
 
-                        ],
-                    )
+                sqlb = MonkeeSQLblock(query=sqlQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='L')
+
             elif newState == 'error':
                 sqlQuery = (
                     """ UPDATE """ + self.qTable + """ 
                     SET errors = %s
                     WHERE q_uid = %s"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            error,
-                            self.transactionUid
+                sqlInsertList = [
+                    error,
+                    self.transactionUid
+                ]
 
-                        ],
-                    )
+                sqlb = MonkeeSQLblock(query=sqlQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='L')
 
             elif newState == 'givenUp':
                 sqlQuery = (
@@ -235,15 +241,15 @@ class CypherTransactionBlock:
                     SET errors = %s||'  '||errors
                     WHERE q_uid = %s"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            error,
-                            self.transactionUid
+                sqlInsertList = [
+                    error,
+                    self.transactionUid
+                ]
 
-                        ],
-                    )
+                sqlb = MonkeeSQLblock(query=sqlQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='L')
 
             elif newState == 'outOfWorkingQ':
                 sqlQuery = (
@@ -251,24 +257,26 @@ class CypherTransactionBlock:
                     SET out_of_working_q_at = %s
                     WHERE q_uid = %s"""
                 )
-                with self.sqlClient.connect() as conn:
-                    conn.execute(
-                        sqlQuery,
-                        [
-                            datetime.now(timezone.utc),
-                            self.transactionUid
+                sqlInsertList = [
+                    datetime.now(timezone.utc),
+                    self.transactionUid
+                ]
 
-                        ],
-                    )
+                sqlb = MonkeeSQLblock(query=sqlQuery,
+                                      insertList=sqlInsertList,
+                                      queryTypeId='')
+                self.sqlBlockHandler.toQ(sqlb, priority='L')
 
 
 class CypherTransactionBlockWorker:
-    def __init__(self, neoDriver, cypherQueues, sqlClient, pubsub):
+    def __init__(self, neoDriver, cypherQueues, pubsub, redisClient, environmentName):
         self.createdAt = datetime.now(timezone.utc)
         self.neoDriver = neoDriver
         self.cypherQueues = cypherQueues
-        self.sqlClient = sqlClient
         self.pubsub = pubsub
+        self.sqlBlockHandler = MonkeeSQLblockHandler(environmentName=environmentName,
+                                                     redis_client=redisClient,
+                                                     pubsub=pubsub)
 
     def goToWork(self, forHowLong=60, inactivityBuffer=10):
         print(f'XXX goToWork. ForHowLong={forHowLong}')
@@ -320,7 +328,7 @@ class CypherTransactionBlockWorker:
 
             print(f"Data read from waitingQ:{dataFromRedis}")
             ctb = CypherTransactionBlock(
-                priority=None, statements=None, transactionUid=None, origin=None, sqlClient=self.sqlClient)
+                priority=None, statements=None, transactionUid=None, origin=None, sqlBlockHandler=self.sqlBlockHandler)
             ctb.makeFromSerial(dataFromRedis)
             if ctb.statements:
                 ctb.lastUpdatedAt = datetime.now(timezone.utc)
@@ -340,7 +348,7 @@ class CypherTransactionBlockWorker:
         ser = self.cypherQueues.popCtbSerialFromWorkingQ()
         if ser:
             ctb = CypherTransactionBlock(
-                priority=None, statements=None, transactionUid=None, origin=None, sqlClient=self.sqlClient)
+                priority=None, statements=None, transactionUid=None, origin=None, sqlBlockHandler=self.sqlBlockHandler)
             ctb.makeFromSerial(ser)
             return ctb
         return None
@@ -349,7 +357,7 @@ class CypherTransactionBlockWorker:
         ser = self.cypherQueues.copyCtbSerialFromWorkingQ()
         if ser:
             ctb = CypherTransactionBlock(
-                priority=None, statements=None, transactionUid=None, origin=None, sqlClient=self.sqlClient)
+                priority=None, statements=None, transactionUid=None, origin=None, sqlBlockHandler=self.sqlBlockHandler)
             ctb.makeFromSerial(ser)
             return ctb
         return None

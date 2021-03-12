@@ -10,12 +10,12 @@ from datetime import datetime, timedelta, timezone
 from neo4j import GraphDatabase, basic_auth, __version__ as neoVersion
 from neo4j.exceptions import ServiceUnavailable
 import uuid
+import redis
 
 from serpentmonkee.PubSubMonkee import PubSubMonkee
 from serpentmonkee.CypherQueue import CypherQueue, CypherQueues
 from serpentmonkee.CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
-
-import redis
+from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock, MonkeeSQLblockHandler
 
 
 class NeoMonkee:  # --------------------------------------------------------------------
@@ -34,6 +34,22 @@ class NeoMonkee:  # ------------------------------------------------------------
         self.pubsub = PubSubMonkee(publisher, projectId, topicId)
         self.cypherWorker = CypherTransactionBlockWorker(
             self.neoDriver, self.cypherQueues, sqlClient=self.sqlClient, pubsub=self.pubsub)
+
+        self.sqlBlockHandler = MonkeeSQLblockHandler(environmentName=projectId,
+                                                     redis_client=redisClient,
+                                                     pubsub=publisher)
+        # self.sqlBlockHandler.killQueue()
+
+        # self.sqlWorker = MonkeeSQLblockWorker(environmentName=projectId,
+        #                                      sqlClient=sqlClient,
+        #                                      sqlBHandler=self.sqlBlockHandler)
+
+        """
+        sqlb = MonkeeSQLblock(query=sqlInsertQuery,
+                                  insertList=[],
+                                  queryTypeId='humans')
+        self.sqlBlockHandler.toQ(sqlb)
+        """
 
     def makeCypherQueues(self):
         cQH = CypherQueue("cypherQ_High")
@@ -236,32 +252,34 @@ class NeoMonkee:  # ------------------------------------------------------------
                   cfInstanceUid):
         """inserts the payloads to the necessary SQL tables"""
         try:
-            if self.sqlClient is not None:
-                timeFormat = "%Y-%m-%d, %H:%M:%S"
-                with self.sqlClient.connect() as conn:
 
-                    duration = None
-                    if start_ts is not None and end_ts is not None:
-                        timeDiff = end_ts - start_ts
-                        duration = timeDiff.total_seconds()
-                    else:
-                        start_ts = datetime.now(timezone.utc)
-                        end_ts = datetime.now(timezone.utc)
-                    sqlInsertQuery = """ INSERT INTO """ + self.sqlTable + """(procedure_name,query_start,query_end,query_duration_in_s,cypher,params,batch,connector_uid,connector_start_time,calling_cf,cf_instance_uid)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """
+            timeFormat = "%Y-%m-%d, %H:%M:%S"
+            duration = None
 
-                    conn.execute(
-                        sqlInsertQuery,
-                        [
-                            proc_name,
-                            start_ts.strftime(timeFormat),
-                            end_ts.strftime(timeFormat), duration, cypher,
-                            params,
-                            str(batch), self.driverUuid, self.driverStartedAt,
-                            self.callingCF, cfInstanceUid
-                        ],
-                    )
+            if start_ts is not None and end_ts is not None:
+                timeDiff = end_ts - start_ts
+                duration = timeDiff.total_seconds()
+            else:
+                start_ts = datetime.now(timezone.utc)
+                end_ts = datetime.now(timezone.utc)
+
+            sqlInsertQuery = """ INSERT INTO """ + self.sqlTable + """(procedure_name,query_start,query_end,query_duration_in_s,cypher,params,batch,connector_uid,connector_start_time,calling_cf,cf_instance_uid)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """
+            sqlInsertList = [
+                proc_name,
+                start_ts.strftime(timeFormat),
+                end_ts.strftime(timeFormat), duration, cypher,
+                params,
+                str(batch), self.driverUuid, self.driverStartedAt,
+                self.callingCF, cfInstanceUid
+            ]
+
+            sqlb = MonkeeSQLblock(query=sqlInsertQuery,
+                                  insertList=sqlInsertList,
+                                  queryTypeId='')
+            self.sqlBlockHandler.toQ(sqlb, priority='H')
+
         except Exception as e:
             logging.error("saveToSql: {}".format(repr(e)))
             raise

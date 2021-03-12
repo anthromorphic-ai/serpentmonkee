@@ -9,3 +9,6 @@ from serpentmonkee.PubSubMonkee import PubSubMonkee
 from serpentmonkee.CypherTransaction import CypherTransactionBlock
 from serpentmonkee.CypherTransaction import CypherTransactionBlockWorker
 from serpentmonkee.CypherQueue import CypherQueue, CypherQueues
+from serpentmonkee.MonkeeSqlWorker import MonkeeSQLblockWorker
+from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblockHandler
+from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock
