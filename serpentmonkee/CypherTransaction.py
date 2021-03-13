@@ -276,7 +276,7 @@ class CypherTransactionBlockWorker:
         self.pubsub = pubsub
         self.sqlBlockHandler = MonkeeSQLblockHandler(environmentName=environmentName,
                                                      redis_client=redisClient,
-                                                     pubsub=pubsub)
+                                                     pubsub=pubsub.publisher)
 
     def goToWork(self, forHowLong=60, inactivityBuffer=10):
         print(f'XXX goToWork. ForHowLong={forHowLong}')

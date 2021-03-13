@@ -14,17 +14,16 @@ import redis
 
 from serpentmonkee.PubSubMonkee import PubSubMonkee
 from serpentmonkee.CypherQueue import CypherQueue, CypherQueues
-from serpentmonkee.CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
-from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock, MonkeeSQLblockHandler
+from CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
+from MonkeeSqlMessenger import MonkeeSQLblock, MonkeeSQLblockHandler
 
 
 class NeoMonkee:  # --------------------------------------------------------------------
 
-    def __init__(self, neoDriver, redisClient, publisher, projectId, topicId, sqlTable, sqlClient=None, callingCF=None, environmentName=None):
+    def __init__(self, neoDriver, redisClient, publisher, projectId, topicId, sqlTable, callingCF=None):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
-        self.sqlClient = sqlClient
         self.sqlTable = sqlTable
         self.callingCF = callingCF
         self.redisClient = redisClient
@@ -33,7 +32,7 @@ class NeoMonkee:  # ------------------------------------------------------------
         self.asyncStatements = []
         self.pubsub = PubSubMonkee(publisher, projectId, topicId)
         self.cypherWorker = CypherTransactionBlockWorker(
-            self.neoDriver, self.cypherQueues, pubsub=self.pubsub, redisClient=redisClient, environmentName=environmentName)
+            self.neoDriver, self.cypherQueues, pubsub=self.pubsub, redisClient=redisClient, environmentName=projectId)
 
         self.sqlBlockHandler = MonkeeSQLblockHandler(environmentName=projectId,
                                                      redis_client=redisClient,
@@ -144,7 +143,7 @@ class NeoMonkee:  # ------------------------------------------------------------
             guid = self.get_uuid()
 
             ctb = CypherTransactionBlock(priority=priority, statements=self.asyncStatements,
-                                         transactionUid=guid, callingCF=self.callingCF, sqlClient=self.sqlClient, originDocUid=docUid, appUid=appUid)
+                                         transactionUid=guid, callingCF=self.callingCF, originDocUid=docUid, appUid=appUid, sqlBlockHandler=self.sqlBlockHandler)
             self.cypherQueues.pushCtbToWaitingQ(ctb)
             # Resets the asyncStatements: this "asyncWrite" is seen as a push the statements to queue and start with a clean list
             self.asyncStatements = []

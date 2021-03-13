@@ -117,7 +117,7 @@ class MonkeeSQLblockWorker:
 
                 howLong = mu.dateDiff(
                     'sec', startTs, datetime.now(timezone.utc))
-                print(f'Running for how long: {howLong}')
+                print(f'sqlw Running for how long: {howLong}')
                 qlen = self.getQLens(priority=priority)
 
         if howLong >= forHowLong - inactivityBuffer and qlen > 0:
