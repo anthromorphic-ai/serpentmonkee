@@ -28,7 +28,7 @@ class MonkeeSQLblockHandler:
         self.sqlQname_H = 'sqlWaiting_high'
         self.sqlQname_M = 'sqlWaiting_medium'
         self.sqlQname_L = 'sqlWaiting_low'
-        #self.sqlQs = [self.sqlQname_H, self.sqlQname_M, self.sqlQname_L]
+        self.sqlQs = [self.sqlQname_H, self.sqlQname_M, self.sqlQname_L]
         self.topic_path = self.pubsub.topic_path(
             self.environmentName, self.topic_id)
 
@@ -57,18 +57,32 @@ class MonkeeSQLblockHandler:
         self.redis_client.delete(self.sqlQname_M)
         self.redis_client.delete(self.sqlQname_L)
 
+    def getQLens(self):
+        lenString = "Q LENGTHS: "
+        for q in self.sqlQs:
+            l = self.redis_client.llen(q)
+            lenString += f'Q={q} len={l},  '
+        print(lenString)
+
 
 class MonkeeSQLblock:
     def __init__(
             self,
             query,
             insertList=[],
-            queryTypeId=None):
+            queryTypeId=None,
+            numRetries=0,
+            maxRetries=30):
 
         self.query = query
         self.insertList = insertList
         self.createdAt = datetime.now(timezone.utc)
         self.queryTypeId = queryTypeId
+        self.numRetries = numRetries
+        self.maxRetries = maxRetries
 
     def instanceToSerial(self):
-        return {"query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId}
+        return {"query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId, "numRetries": self.numRetries, "maxRetries": self.maxRetries}
+
+    def retryAgain(self):
+        return self.numRetries <= self.maxRetries

@@ -11,6 +11,8 @@ from sqlalchemy.sql.expression import bindparam
 import json
 import logging
 import time
+import pg8000
+
 
 import serpentmonkee.UtilsMonkee as mu
 from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock
@@ -41,10 +43,16 @@ class MonkeeSQLblockWorker:
                     sqlBlock.query,
                     sqlBlock.insertList
                 )
-            except Exception as e:  # TODO: add specific error checking and then, if the block has a chance to pass in future, plonk it back in the same queue
-                print(
-                    f'!!! error in sqlb {sqlBlock.query} : {sqlBlock.insertList}')
-                print(repr(e))
+
+            except Exception as e:  # except pg8000.core.ProgrammingError:
+                sqlBlock.numRetries += 1
+                if sqlBlock.tryAgain():
+                    self.sqlBHandler.toQ(sqlB=sqlBlock)
+                    err = f'{sqlBlock.numRetries} fails. Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList} | {repr(e)}'
+                    logging.error(err)
+                else:
+                    err = f'!! {sqlBlock.numRetries} fails. Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList} | {repr(e)}'
+                    logging.error(err)
 
     def popNextBlock(self, priority):
         if priority == 'H':
