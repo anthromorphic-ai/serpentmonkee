@@ -68,11 +68,13 @@ class MonkeeSQLblockHandler:
 class MonkeeSQLblock:
     def __init__(
             self,
-            query,
+            query=None,
             insertList=[],
             queryTypeId=None,
             numRetries=0,
-            maxRetries=30):
+            maxRetries=30,
+            soloExecution=0,
+            lastExecAttempt=None):
 
         self.query = query
         self.insertList = insertList
@@ -80,9 +82,22 @@ class MonkeeSQLblock:
         self.queryTypeId = queryTypeId
         self.numRetries = numRetries
         self.maxRetries = maxRetries
+        self.soloExecution = soloExecution
+        self.lastExecAttempt = lastExecAttempt
 
     def instanceToSerial(self):
-        return {"query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId, "numRetries": self.numRetries, "maxRetries": self.maxRetries}
+        return {"query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId, "numRetries": self.numRetries, "maxRetries": self.maxRetries,
+                "soloExecution": self.soloExecution, "lastExecAttempt": self.lastExecAttempt}
 
     def retryAgain(self):
-        return self.numRetries <= self.maxRetries
+        print(f'retryAgain: {self.numRetries} / {self.maxRetries}')
+        return int(self.numRetries) <= int(self.maxRetries)
+
+    def makeFromSerial(self, serial_):
+        self.query = mu.getval(serial_, "query")
+        self.insertList = mu.getval(serial_, "insertList")
+        self.queryTypeId = mu.getval(serial_, "queryTypeId")
+        self.numRetries = mu.getval(serial_, "numRetries")
+        self.maxRetries = mu.getval(serial_, "maxRetries")
+        self.soloExecution = mu.getval(serial_, "soloExecution")
+        self.lastExecAttempt = mu.getval(serial_, "lastExecAttempt")

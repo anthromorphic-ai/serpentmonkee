@@ -46,10 +46,22 @@ class MonkeeSQLblockWorker:
 
             except Exception as e:  # except pg8000.core.ProgrammingError:
                 sqlBlock.numRetries += 1
-                if sqlBlock.tryAgain():
-                    self.sqlBHandler.toQ(sqlB=sqlBlock)
+                sqlBlock.lastExecAttempt = datetime.now()
+                if sqlBlock.retryAgain():
+                    # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
+                    if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
+                        for element in sqlBlock.insertList:
+                            sqlB = MonkeeSQLblock(
+                                query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
+                            self.sqlBHandler.toQ(sqlB=sqlB)
+                            print(
+                                f'sqlBlock.numRetries = {sqlBlock.numRetries}')
+                    elif len(sqlBlock.insertList) >= 1:
+
+                        self.sqlBHandler.toQ(sqlB=sqlBlock)
+
                     err = f'{sqlBlock.numRetries} fails. Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList} | {repr(e)}'
-                    logging.error(err)
+                    logging.info(err)
                 else:
                     err = f'!! {sqlBlock.numRetries} fails. Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList} | {repr(e)}'
                     logging.error(err)
@@ -68,7 +80,17 @@ class MonkeeSQLblockWorker:
                 f"SQL_Q {priority} is EMPTY_________________________________________")
         else:
             dataFromRedis = json.loads(popped[1], cls=mu.RoundTripDecoder)
-            return dataFromRedis, False
+            numRetries = mu.getval(dataFromRedis, "numRetries", 0)
+            lastExecAttempt = mu.getval(dataFromRedis, "lastExecAttempt")
+            if numRetries == 0:
+                return dataFromRedis, False
+            elif lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=5 * numRetries):
+                return dataFromRedis, False
+            else:
+                sqlB = MonkeeSQLblock()
+                sqlB.makeFromSerial(serial_=dataFromRedis)
+                self.sqlBHandler.toQ(sqlB, priority=priority)
+
         return None, True
 
     def getQLens(self, priority):
@@ -89,13 +111,25 @@ class MonkeeSQLblockWorker:
 
     def sortBatch(self, batch):
         retDict = {}
+        retList = []
         for line in batch:
             query = mu.getval(line, "query")
+            soloExecution = mu.getval(line, "soloExecution", 0)
+            numRetries = mu.getval(line, "numRetries", 0)
+            maxRetries = mu.getval(line, "maxRetries", 0)
+            lastExecAttempt = mu.getval(line, "lastExecAttempt")
             if query:
-                if query not in retDict:
-                    retDict[query] = []
-                retDict[query].append(line["insertList"])
-        return retDict
+                if soloExecution == 0:
+                    if query not in retDict:
+                        retDict[query] = []
+                    retDict[query].append(line["insertList"])
+                elif soloExecution == 1:
+                    retList.append(
+                        [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt])
+
+        for q in retDict:
+            retList.append([q, retDict[q], 0, 30, 0, lastExecAttempt])
+        return retList
 
     def goToWork(self, forHowLong=60, inactivityBuffer=10, batchSize=50):
         print(f'XXX goingToWork. ForHowLong={forHowLong}')
@@ -120,13 +154,17 @@ class MonkeeSQLblockWorker:
 
                 for sb in sortedBatches:
                     sqb = MonkeeSQLblock(
-                        query=sb, insertList=sortedBatches[sb])
+                        query=sb[0], insertList=sb[1], numRetries=sb[2], maxRetries=sb[3], soloExecution=sb[4], lastExecAttempt=sb[5])
                     self.executeBlock(sqb)
 
                 howLong = mu.dateDiff(
                     'sec', startTs, datetime.now(timezone.utc))
-                print(f'sqlw Running for how long: {howLong}')
+                #print(f'sqlw Running for how long: {howLong}')
                 qlen = self.getQLens(priority=priority)
+                if qlen == 0:
+                    queuesAreEmpty = True
+                else:
+                    queuesAreEmpty = False
 
         if howLong >= forHowLong - inactivityBuffer and qlen > 0:
             # numFlares = self.cypherQueues.totalInWaitingQueues / 10
