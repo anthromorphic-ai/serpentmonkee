@@ -49,7 +49,7 @@ class MonkeeSQLblockHandler:
 
         serial_ = json.dumps(sqlB.instanceToSerial(), cls=mu.RoundTripEncoder)
         self.redis_client.rpush(sqlQname, serial_)
-        # self.sendFlare()
+        self.sendFlare()
 
     def killQueue(self):
         print('KILLING QUEUE')
