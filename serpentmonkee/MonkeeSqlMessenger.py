@@ -95,6 +95,7 @@ class MonkeeSQLblock:
         self.serial_ = self.instanceToSerial()
 
     def instanceToSerial(self):
+        self.transactionSqb = []
         for i in self.statements:
             self.transactionSqb.append(i.instanceToSerial())
         self.serial_ = {"isTransaction": self.isTransaction, "query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId, "numRetries": self.numRetries, "maxRetries": self.maxRetries,

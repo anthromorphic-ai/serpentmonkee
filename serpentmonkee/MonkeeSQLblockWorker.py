@@ -43,13 +43,16 @@ class MonkeeSQLblockWorker:
         with self.sqlClient.connect() as conn:
             try:
                 if isinstance(sqlBlock, list):
-                    session = Session(self.sqlClient)
-                    for block in sqlBlock:
-                        conn.execute(
-                            block.query,
-                            block.insertList
-                        )
-                    conn.commit()
+                    with conn.begin():
+                        i = 0
+                        for block in sqlBlock:
+                            conn.execute(
+                                block.query,
+                                block.insertList
+                            )
+                            if i == 3:
+                                print(4)
+                            i += 1
 
                 else:
                     conn.execute(
@@ -57,6 +60,7 @@ class MonkeeSQLblockWorker:
                         sqlBlock.insertList
                     )
                     conn.commit()
+                print(0)
 
             except BrokenPipeError as e:
                 sqlBlock.numRetries += 1
