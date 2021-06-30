@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import random
 import sqlalchemy
 from sqlalchemy.sql.expression import bindparam
+from sqlalchemy.orm import Session
 import json
 import logging
 import time
@@ -24,8 +25,9 @@ class MonkeeSQLblockWorker:
         self.environmentName = environmentName
         self.sqlClient = sqlClient
         self.topic_id = 'sql_worker'
-        self.topic_path = self.sqlBHandler.pubsub.topic_path(
-            self.environmentName, self.topic_id)
+        if self.sqlBHandler.pubsub:
+            self.topic_path = self.sqlBHandler.pubsub.topic_path(
+                self.environmentName, self.topic_id)
 
     def syncRunSQL(self, sql):
         with self.sqlClient.connect() as conn:
@@ -37,14 +39,26 @@ class MonkeeSQLblockWorker:
                 print(repr(e))
 
     def executeBlock(self, sqlBlock):
+
         with self.sqlClient.connect() as conn:
             try:
-                conn.execute(
-                    sqlBlock.query,
-                    sqlBlock.insertList
-                )
+                if isinstance(sqlBlock, list):
+                    session = Session(self.sqlClient)
+                    for block in sqlBlock:
+                        conn.execute(
+                            block.query,
+                            block.insertList
+                        )
+                    conn.commit()
 
-            except Exception as e:  # except pg8000.core.ProgrammingError:
+                else:
+                    conn.execute(
+                        sqlBlock.query,
+                        sqlBlock.insertList
+                    )
+                    conn.commit()
+
+            except BrokenPipeError as e:
                 sqlBlock.numRetries += 1
                 sqlBlock.lastExecAttempt = datetime.now()
                 if sqlBlock.retryAgain():
@@ -60,11 +74,37 @@ class MonkeeSQLblockWorker:
 
                         self.sqlBHandler.toQ(sqlB=sqlBlock)
 
-                    err = f'{sqlBlock.numRetries} fails. Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList} | {repr(e)}'
+                    err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList} '
                     logging.info(err)
                 else:
-                    err = f'!! {sqlBlock.numRetries} fails. Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList} | {repr(e)}'
+                    err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
                     logging.error(err)
+
+                self.sqlClient.dispose()
+
+            except Exception as e:
+                sqlBlock.numRetries += 1
+                sqlBlock.lastExecAttempt = datetime.now()
+                if sqlBlock.retryAgain():
+                    # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
+                    if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
+                        for element in sqlBlock.insertList:
+                            sqlB = MonkeeSQLblock(
+                                query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
+                            self.sqlBHandler.toQ(sqlB=sqlB)
+                            print(
+                                f'sqlBlock.numRetries = {sqlBlock.numRetries}')
+                    elif len(sqlBlock.insertList) >= 1:
+
+                        self.sqlBHandler.toQ(sqlB=sqlBlock)
+
+                    err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+                    logging.info(err)
+                else:
+                    err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+                    logging.error(err)
+
+                self.sqlClient.dispose()
 
     def popNextBlock(self, priority):
         if priority == 'H':
@@ -112,24 +152,39 @@ class MonkeeSQLblockWorker:
     def sortBatch(self, batch):
         retDict = {}
         retList = []
+        transactions = []
         for line in batch:
-            query = mu.getval(line, "query")
-            soloExecution = mu.getval(line, "soloExecution", 0)
-            numRetries = mu.getval(line, "numRetries", 0)
-            maxRetries = mu.getval(line, "maxRetries", 0)
-            lastExecAttempt = mu.getval(line, "lastExecAttempt")
-            if query:
-                if soloExecution == 0:
-                    if query not in retDict:
-                        retDict[query] = []
-                    retDict[query].append(line["insertList"])
-                elif soloExecution == 1:
-                    retList.append(
-                        [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt])
+            isTransaction = mu.getval(line, "isTransaction", 0)
+
+            if isTransaction == 0:
+                query = mu.getval(line, "query")
+                # soloExecution = flagging this element to be executed on its own, i.e. not as part of a batch
+                soloExecution = mu.getval(line, "soloExecution", 0)
+                numRetries = mu.getval(line, "numRetries", 0)
+                maxRetries = mu.getval(line, "maxRetries", 0)
+                lastExecAttempt = mu.getval(line, "lastExecAttempt")
+                if query:
+                    if soloExecution == 0:
+                        if query not in retDict:
+                            retDict[query] = []
+                        retDict[query].append(line["insertList"])
+                    elif soloExecution == 1:
+                        retList.append(
+                            [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt])
+            elif isTransaction == 1:
+                # TODO: add the line's queries to an atomic transaction block. transactions is a list of [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt] lines that are all executed as one transaction
+                print('adding to transaction block...')
+                sqbs = mu.getval(line, 'transactionSqb', [])
+                transaction_i = []
+                for sqb in sqbs:
+                    transaction_i.append([sqb["query"], sqb["insertList"], sqb["numRetries"],
+                                          sqb["maxRetries"], sqb["soloExecution"], sqb["lastExecAttempt"]])
+                transactions.append(transaction_i)
 
         for q in retDict:
             retList.append([q, retDict[q], 0, 30, 0, lastExecAttempt])
-        return retList
+
+        return retList, transactions
 
     def goToWork(self, forHowLong=60, inactivityBuffer=10, batchSize=50):
         print(f'XXX goingToWork. ForHowLong={forHowLong}')
@@ -150,12 +205,20 @@ class MonkeeSQLblockWorker:
                     if sqlB:
                         batch.append(sqlB)
                     k += 1
-                sortedBatches = self.sortBatch(batch)
+                sortedBatches, transactions = self.sortBatch(batch)
 
                 for sb in sortedBatches:
                     sqb = MonkeeSQLblock(
                         query=sb[0], insertList=sb[1], numRetries=sb[2], maxRetries=sb[3], soloExecution=sb[4], lastExecAttempt=sb[5])
                     self.executeBlock(sqb)
+
+                for transactionBatch in transactions:
+                    transactionBlock = []
+                    for transactionElement in transactionBatch:
+                        sqb = MonkeeSQLblock(
+                            query=transactionElement[0], insertList=transactionElement[1], numRetries=transactionElement[2], maxRetries=transactionElement[3], soloExecution=transactionElement[4], lastExecAttempt=transactionElement[5])
+                        transactionBlock.append(sqb)
+                    self.executeBlock(transactionBlock)
 
                 howLong = mu.dateDiff(
                     'sec', startTs, datetime.now(timezone.utc))

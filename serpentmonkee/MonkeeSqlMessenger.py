@@ -29,13 +29,15 @@ class MonkeeSQLblockHandler:
         self.sqlQname_M = 'sqlWaiting_medium'
         self.sqlQname_L = 'sqlWaiting_low'
         self.sqlQs = [self.sqlQname_H, self.sqlQname_M, self.sqlQname_L]
-        self.topic_path = self.pubsub.topic_path(
-            self.environmentName, self.topic_id)
+        if self.pubsub:
+            self.topic_path = self.pubsub.topic_path(
+                self.environmentName, self.topic_id)
 
     def sendFlare(self, messageData='awaken'):
         data = messageData.encode("utf-8")
-        future = self.pubsub.publish(self.topic_path, data)
-        future.result()
+        if self.pubsub:
+            future = self.pubsub.publish(self.topic_path, data)
+            future.result()
 
     def toQ(self, sqlB, priority='L'):
         if priority == 'L':
@@ -74,7 +76,9 @@ class MonkeeSQLblock:
             numRetries=0,
             maxRetries=30,
             soloExecution=0,
-            lastExecAttempt=None):
+            lastExecAttempt=None,
+            isTransaction=0,
+            transactionStatements=[]):
 
         self.query = query
         self.insertList = insertList
@@ -84,20 +88,44 @@ class MonkeeSQLblock:
         self.maxRetries = maxRetries
         self.soloExecution = soloExecution
         self.lastExecAttempt = lastExecAttempt
+        self.isTransaction = isTransaction
+        self.statements = []
+        self.statements = transactionStatements
+        self.transactionSqb = []
+        self.serial_ = self.instanceToSerial()
 
     def instanceToSerial(self):
-        return {"query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId, "numRetries": self.numRetries, "maxRetries": self.maxRetries,
-                "soloExecution": self.soloExecution, "lastExecAttempt": self.lastExecAttempt}
+        for i in self.statements:
+            self.transactionSqb.append(i.instanceToSerial())
+        self.serial_ = {"isTransaction": self.isTransaction, "query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId, "numRetries": self.numRetries, "maxRetries": self.maxRetries,
+                        "soloExecution": self.soloExecution, "lastExecAttempt": self.lastExecAttempt, "transactionSqb": self.transactionSqb}
+        return self.serial_
 
     def retryAgain(self):
         print(f'retryAgain: {self.numRetries} / {self.maxRetries}')
         return int(self.numRetries) <= int(self.maxRetries)
 
     def makeFromSerial(self, serial_):
-        self.query = mu.getval(serial_, "query")
-        self.insertList = mu.getval(serial_, "insertList")
-        self.queryTypeId = mu.getval(serial_, "queryTypeId")
-        self.numRetries = mu.getval(serial_, "numRetries")
-        self.maxRetries = mu.getval(serial_, "maxRetries")
-        self.soloExecution = mu.getval(serial_, "soloExecution")
-        self.lastExecAttempt = mu.getval(serial_, "lastExecAttempt")
+        self.isTransaction = mu.getval(serial_, "isTransaction", 0)
+        if self.isTransaction == 0:
+            self.query = mu.getval(serial_, "query")
+            self.insertList = mu.getval(serial_, "insertList")
+            self.queryTypeId = mu.getval(serial_, "queryTypeId")
+            self.numRetries = mu.getval(serial_, "numRetries")
+            self.maxRetries = mu.getval(serial_, "maxRetries")
+            self.soloExecution = mu.getval(serial_, "soloExecution")
+            self.lastExecAttempt = mu.getval(serial_, "lastExecAttempt")
+            self.serial_ = self.instanceToSerial()
+        elif self.isTransaction == 1:
+            self.statements = self.query = mu.getval(serial_, "statements", [])
+            for statement in self.statements:
+                sqb = MonkeeSQLblock()
+                sqb.query = mu.getval(statement, "query")
+                sqb.insertList = mu.getval(statement, "insertList")
+                sqb.queryTypeId = mu.getval(statement, "queryTypeId")
+                sqb.numRetries = mu.getval(statement, "numRetries")
+                sqb.maxRetries = mu.getval(statement, "maxRetries")
+                sqb.soloExecution = mu.getval(statement, "soloExecution")
+                sqb.lastExecAttempt = mu.getval(statement, "lastExecAttempt")
+                sqb.serial_ = sqb.instanceToSerial()
+                self.transactionSqb.append(sqb)
