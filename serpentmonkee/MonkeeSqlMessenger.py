@@ -77,7 +77,6 @@ class MonkeeSQLblock:
             maxRetries=30,
             soloExecution=0,
             lastExecAttempt=None,
-            isTransaction=0,
             transactionStatements=[]):
 
         self.query = query
@@ -88,9 +87,12 @@ class MonkeeSQLblock:
         self.maxRetries = maxRetries
         self.soloExecution = soloExecution
         self.lastExecAttempt = lastExecAttempt
-        self.isTransaction = isTransaction
-        self.statements = []
+
         self.statements = transactionStatements
+        if len(transactionStatements) >= 1:
+            self.isTransaction = 1
+        else:
+            self.isTransaction = 0
         self.transactionSqb = []
         self.serial_ = self.instanceToSerial()
 

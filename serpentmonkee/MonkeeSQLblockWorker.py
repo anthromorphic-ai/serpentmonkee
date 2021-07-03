@@ -14,9 +14,8 @@ import logging
 import time
 import pg8000
 
-
 import serpentmonkee.UtilsMonkee as mu
-from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock
+from MonkeeSqlMessenger import MonkeeSQLblock
 
 
 class MonkeeSQLblockWorker:
@@ -42,70 +41,67 @@ class MonkeeSQLblockWorker:
 
         with self.sqlClient.connect() as conn:
             try:
+                # if sqlBlock is a list of sqlBlocks, run it as one transaction
                 if isinstance(sqlBlock, list):
                     with conn.begin():
-                        i = 0
                         for block in sqlBlock:
+                            theBlock = block
                             conn.execute(
                                 block.query,
                                 block.insertList
                             )
-                            if i == 3:
-                                print(4)
-                            i += 1
-
                 else:
+                    theBlock = sqlBlock
                     conn.execute(
                         sqlBlock.query,
                         sqlBlock.insertList
                     )
                     conn.commit()
-                print(0)
 
             except BrokenPipeError as e:
-                sqlBlock.numRetries += 1
-                sqlBlock.lastExecAttempt = datetime.now()
-                if sqlBlock.retryAgain():
+                theBlock.numRetries += 1
+                theBlock.lastExecAttempt = datetime.now()
+                if theBlock.retryAgain():
                     # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
-                    if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
-                        for element in sqlBlock.insertList:
+                    if len(theBlock.insertList) >= 1 and isinstance(theBlock.insertList[0], list):
+                        for element in theBlock.insertList:
                             sqlB = MonkeeSQLblock(
-                                query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
+                                query=theBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
                             self.sqlBHandler.toQ(sqlB=sqlB)
                             print(
-                                f'sqlBlock.numRetries = {sqlBlock.numRetries}')
-                    elif len(sqlBlock.insertList) >= 1:
+                                f'theBlock.numRetries = {theBlock.numRetries}')
+                    elif len(theBlock.insertList) >= 1:
 
                         self.sqlBHandler.toQ(sqlB=sqlBlock)
 
-                    err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList} '
+                    err = f'{theBlock.numRetries} fails | {repr(e)} | Retrying SQL: {theBlock.query} | {theBlock.insertList} '
                     logging.info(err)
                 else:
-                    err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+                    err = f'!! {theBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {theBlock.query} | {theBlock.insertList}'
                     logging.error(err)
 
                 self.sqlClient.dispose()
 
             except Exception as e:
-                sqlBlock.numRetries += 1
-                sqlBlock.lastExecAttempt = datetime.now()
-                if sqlBlock.retryAgain():
+                theBlock.numRetries += 1
+                theBlock.lastExecAttempt = datetime.now()
+                if theBlock.retryAgain():
                     # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
-                    if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
-                        for element in sqlBlock.insertList:
+                    if len(theBlock.insertList) >= 1 and isinstance(theBlock.insertList[0], list):
+                        for element in theBlock.insertList:
                             sqlB = MonkeeSQLblock(
-                                query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
+                                query=theBlock.query, insertList=element, numRetries=theBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
                             self.sqlBHandler.toQ(sqlB=sqlB)
                             print(
-                                f'sqlBlock.numRetries = {sqlBlock.numRetries}')
-                    elif len(sqlBlock.insertList) >= 1:
+                                f'theBlock.numRetries = {theBlock.numRetries}')
+                    elif len(theBlock.insertList) >= 1:
 
                         self.sqlBHandler.toQ(sqlB=sqlBlock)
 
-                    err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+                    err = f'{theBlock.numRetries} fails | {repr(e)} | Retrying SQL: {theBlock.query} | {theBlock.insertList}'
                     logging.info(err)
                 else:
-                    err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+                    err = f'!! {theBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {theBlock.query} | {theBlock.insertList}'
                     logging.error(err)
 
                 self.sqlClient.dispose()
