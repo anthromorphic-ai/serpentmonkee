@@ -6,7 +6,7 @@
 from datetime import datetime, timedelta, timezone
 import random
 # import monkee_utilities as mu
-from serpentmonkee import UtilsMonkee as mu
+import serpentmonkee.UtilsMonkee as mu
 import sqlalchemy
 from sqlalchemy.sql.expression import bindparam
 import json
