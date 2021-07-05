@@ -15,7 +15,7 @@ import copy
 import serpentmonkee.UtilsMonkee as um
 from neo4j.exceptions import CypherSyntaxError, ServiceUnavailable, ClientError, ConstraintError
 from serpentmonkee.PubSubMonkee import PubSubMonkee
-#from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock, MonkeeSQLblockHandler
+from serpentmonkee.MonkeeSQLblocks import MonkeeSQLblock, MonkeeSQLblockHandler
 import logging
 # --------------------------------------------------------------------
 
