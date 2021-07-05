@@ -11,5 +11,6 @@ from serpentmonkee.CypherTransaction import CypherTransactionBlockWorker
 from serpentmonkee.CypherQueue import CypherQueue, CypherQueues
 
 from serpentmonkee.MonkeeSQLblockWorker import MonkeeSQLblockWorker
+import serpentmonkee.MonkeeSqlMessenger as MonkeeSqlMessenger
 from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblockHandler
 from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock
