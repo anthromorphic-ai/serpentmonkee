@@ -15,7 +15,7 @@ import time
 import pg8000
 
 import serpentmonkee.UtilsMonkee as mu
-from MonkeeSqlMessenger import MonkeeSQLblock
+from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock
 
 
 class MonkeeSQLblockWorker:
