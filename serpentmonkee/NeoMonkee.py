@@ -15,7 +15,7 @@ import redis
 from serpentmonkee.PubSubMonkee import PubSubMonkee
 from serpentmonkee.CypherQueue import CypherQueue, CypherQueues
 from serpentmonkee.CypherTransaction import CypherTransactionBlock, CypherTransactionBlockWorker
-from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock, MonkeeSQLblockHandler
+from serpentmonkee.MonkeeSQLblocks import MonkeeSQLblock, MonkeeSQLblockHandler
 
 
 class NeoMonkee:  # --------------------------------------------------------------------
