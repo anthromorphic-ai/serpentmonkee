@@ -139,11 +139,12 @@ class MonkeeSQLblock:
 
 
 class MonkeeSQLblockWorker:
-    def __init__(self, environmentName, sqlBHandler, sqlClient):
+    def __init__(self, environmentName, sqlBHandler, sqlClient, reportCollectionRef=None):
         self.sqlBHandler = sqlBHandler
         self.environmentName = environmentName
         self.sqlClient = sqlClient
         self.topic_id = 'sql_worker'
+        self.reportCollectionRef = reportCollectionRef
         if self.sqlBHandler.pubsub:
             self.topic_path = self.sqlBHandler.pubsub.topic_path(
                 self.environmentName, self.topic_id)
@@ -306,12 +307,46 @@ class MonkeeSQLblockWorker:
 
         return retList, transactions
 
+    def reportOnQueues(self):
+
+        if self.reportCollectionRef:
+            priorities = ['H', 'M', 'L']
+            qDict = {'qCheckTime': datetime.now(timezone.utc)}
+            for priority in priorities:
+                qArray = []
+
+                if priority == 'H':
+                    theQ = self.sqlBHandler.sqlQname_H
+                elif priority == 'M':
+                    theQ = self.sqlBHandler.sqlQname_M
+                elif priority == 'L':
+                    theQ = self.sqlBHandler.sqlQname_L
+
+                qlen = self.getQLens(priority)
+                qlenKey = f'{priority}__len'
+                qcontentKey = f'{priority}_content'
+
+                qDict[qlenKey] = qlen
+
+                qcontents = self.sqlBHandler.redis_client.lrange(
+                    theQ, -10, -1)
+                for element in qcontents:
+                    elementParsed = json.loads(
+                        element, cls=mu.RoundTripDecoder)
+                    qArray.append(elementParsed)
+
+                qDict[qcontentKey] = qArray
+            docUid = str(1625607464 * 3 - int(time.time()))
+
+            self.reportCollectionRef.document(docUid).set(qDict)
+
     def goToWork(self, forHowLong=60, inactivityBuffer=10, batchSize=50):
         print(f'XXX goingToWork. ForHowLong={forHowLong}')
         priorities = ['H', 'M', 'L']
         startTs = datetime.now(timezone.utc)
         i = 0
         howLong = 0
+        self.reportOnQueues()
         # High Priority
 
         for priority in priorities:
