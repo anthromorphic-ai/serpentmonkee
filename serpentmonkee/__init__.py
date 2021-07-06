@@ -11,7 +11,4 @@ from serpentmonkee.PubSubMonkee import PubSubMonkee
 from serpentmonkee.CypherTransaction import CypherTransactionBlock
 from serpentmonkee.CypherTransaction import CypherTransactionBlockWorker
 from serpentmonkee.CypherQueue import CypherQueue, CypherQueues
-#from serpentmonkee.MonkeeSQLblocks import MonkeeSQLblockWorker, MonkeeSQLblockHandler, MonkeeSQLblock
-#import serpentmonkee.MonkeeSqlMessenger as MonkeeSqlMessenger
-#from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblockHandler
-#from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock
+from serpentmonkee.MonkeeSQLblocks import MonkeeSQLblockWorker, MonkeeSQLblockHandler, MonkeeSQLblock
