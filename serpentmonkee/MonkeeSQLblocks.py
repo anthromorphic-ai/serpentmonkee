@@ -180,6 +180,7 @@ class MonkeeSQLblockWorker:
                     conn.commit()
 
             except BrokenPipeError as e:
+                logging.info(repr(e))
                 theBlock.numRetries += 1
                 theBlock.lastExecAttempt = datetime.now()
                 if theBlock.retryAgain():
@@ -204,6 +205,7 @@ class MonkeeSQLblockWorker:
                 self.sqlClient.dispose()
 
             except Exception as e:
+                logging.info(repr(e))
                 theBlock.numRetries += 1
                 theBlock.lastExecAttempt = datetime.now()
                 if theBlock.retryAgain():
