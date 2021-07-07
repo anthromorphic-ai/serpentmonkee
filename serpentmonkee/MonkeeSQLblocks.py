@@ -13,6 +13,7 @@ import json
 import logging
 import time
 import pg8000
+from pg8000 import ProgrammingError, IntegrityError
 
 import serpentmonkee.UtilsMonkee as mu
 #from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock
@@ -72,16 +73,21 @@ class MonkeeSQLblockHandler:
 
 
 class MonkeeSQLblock:
+    """
+
+    """
+
     def __init__(
             self,
             query=None,
             insertList=[],
             queryTypeId=None,
             numRetries=0,
-            maxRetries=30,
+            maxRetries=25,
             soloExecution=0,
             lastExecAttempt=None,
-            transactionStatements=[]):
+            transactionStatements=[],
+            transactionSqb=[]):
 
         self.query = query
         self.insertList = insertList
@@ -93,17 +99,18 @@ class MonkeeSQLblock:
         self.lastExecAttempt = lastExecAttempt
 
         self.statements = transactionStatements
-        if len(transactionStatements) >= 1:
+        if len(transactionStatements) >= 1 or len(transactionSqb) >= 1:
             self.isTransaction = 1
         else:
             self.isTransaction = 0
-        self.transactionSqb = []
+        self.transactionSqb = transactionSqb
         self.serial_ = self.instanceToSerial()
 
     def instanceToSerial(self):
-        self.transactionSqb = []
-        for i in self.statements:
-            self.transactionSqb.append(i.instanceToSerial())
+        if self.transactionSqb == []:
+            self.transactionSqb = []
+            for i in self.statements:
+                self.transactionSqb.append(i.instanceToSerial())
         self.serial_ = {"isTransaction": self.isTransaction, "query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId, "numRetries": self.numRetries, "maxRetries": self.maxRetries,
                         "soloExecution": self.soloExecution, "lastExecAttempt": self.lastExecAttempt, "transactionSqb": self.transactionSqb}
         return self.serial_
@@ -124,27 +131,36 @@ class MonkeeSQLblock:
             self.lastExecAttempt = mu.getval(serial_, "lastExecAttempt")
             self.serial_ = self.instanceToSerial()
         elif self.isTransaction == 1:
-            self.statements = self.query = mu.getval(serial_, "statements", [])
-            for statement in self.statements:
-                sqb = MonkeeSQLblock()
-                sqb.query = mu.getval(statement, "query")
-                sqb.insertList = mu.getval(statement, "insertList")
-                sqb.queryTypeId = mu.getval(statement, "queryTypeId")
-                sqb.numRetries = mu.getval(statement, "numRetries")
-                sqb.maxRetries = mu.getval(statement, "maxRetries")
-                sqb.soloExecution = mu.getval(statement, "soloExecution")
-                sqb.lastExecAttempt = mu.getval(statement, "lastExecAttempt")
-                sqb.serial_ = sqb.instanceToSerial()
-                self.transactionSqb.append(sqb)
+            self.statements = mu.getval(serial_, "statements", [])
+            self.transactionSqb = mu.getval(serial_, "transactionSqb", [])
+            self.numRetries = mu.getval(serial_, "numRetries")
+            self.maxRetries = mu.getval(serial_, "maxRetries")
+            self.lastExecAttempt = mu.getval(serial_, "lastExecAttempt")
+            if len(self.statements) > 0 and len(self.transactionSqb) == 0:
+
+                for statement in self.statements:
+                    sqb = MonkeeSQLblock()
+                    sqb.query = mu.getval(statement, "query")
+                    sqb.insertList = mu.getval(statement, "insertList")
+                    sqb.queryTypeId = mu.getval(statement, "queryTypeId")
+                    sqb.numRetries = mu.getval(statement, "numRetries")
+                    sqb.maxRetries = mu.getval(statement, "maxRetries")
+                    sqb.soloExecution = mu.getval(statement, "soloExecution")
+                    sqb.lastExecAttempt = mu.getval(
+                        statement, "lastExecAttempt")
+                    sqb.serial_ = sqb.instanceToSerial()
+                    self.transactionSqb.append(sqb)
+        self.instanceToSerial()
 
 
 class MonkeeSQLblockWorker:
-    def __init__(self, environmentName, sqlBHandler, sqlClient, reportCollectionRef=None):
+    def __init__(self, environmentName, sqlBHandler, sqlClient, reportCollectionRef=None, fb_db=None):
         self.sqlBHandler = sqlBHandler
         self.environmentName = environmentName
         self.sqlClient = sqlClient
         self.topic_id = 'sql_worker'
         self.reportCollectionRef = reportCollectionRef
+        self.fb_db = fb_db
         if self.sqlBHandler.pubsub:
             self.topic_path = self.sqlBHandler.pubsub.topic_path(
                 self.environmentName, self.topic_id)
@@ -158,7 +174,106 @@ class MonkeeSQLblockWorker:
             except Exception as e:
                 print(repr(e))
 
-    def executeBlock(self, sqlBlock):
+    def persistErrorDetailInFB(self, exception, attempt):
+        lst = dir(exception)
+        dict_ = {'attempt': attempt, 'createdAt': datetime.now(timezone.utc)}
+        if 'orig' in lst:
+            try:
+                dict_['orig_args'] = exception.orig.args[0]
+            except:
+                dict_['orig_args_M'] = 'Unable to get this'
+        if 'args' in lst:
+            dict_['args'] = str(exception.args)
+        if 'code' in lst:
+            dict_['code'] = exception.code
+        if 'statement' in lst:
+            dict_['statement'] = exception.statement
+        if 'params' in lst and exception.params:
+            dict_['params'] = list(exception.params)
+        if 'connection_invalidated' in lst:
+            dict_['connection_invalidated'] = exception.connection_invalidated
+        if 'detail' in lst:
+            dict_['detail'] = exception.detail
+
+        if self.fb_db:
+            destDoc = self.fb_db.collection('logging/sqlQ/errors').document()
+            destDoc.set(dict_)
+
+    def executeBlock(self, sqlBlock, priority='L'):
+        try:
+            with self.sqlClient.connect() as conn:
+
+                sqbs = sqlBlock.transactionSqb
+                if sqbs != []:
+                    with conn.begin():
+                        for sqb in sqbs:
+                            conn.execute(
+                                sqb['query'],
+                                sqb['insertList']
+                            )
+                else:
+                    conn.execute(
+                        sqlBlock.query,
+                        sqlBlock.insertList
+                    )
+                    conn.commit()
+
+                    """
+                        except BrokenPipeError as e:
+                            logging.info(repr(e))
+                            sqlBlock.numRetries += 1
+                            sqlBlock.lastExecAttempt = datetime.now()
+                            if sqlBlock.retryAgain():
+                                # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
+                                if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
+                                    for element in sqlBlock.insertList:
+                                        sqlB = MonkeeSQLblock(
+                                            query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
+                                        self.sqlBHandler.toQ(sqlB=sqlB, priority=priority)
+                                        print(
+                                            f'sqlBlock.numRetries = {sqlBlock.numRetries}')
+                                elif len(sqlBlock.insertList) >= 1:
+
+                                    self.sqlBHandler.toQ(sqlB=sqlBlock, priority=priority)
+
+                                err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList} '
+                                logging.info(err)
+                            else:
+                                err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+                                logging.error(err)
+
+                            self.sqlClient.dispose()"""
+
+        except Exception as e:
+            logging.info(repr(e))
+            self.persistErrorDetailInFB(e, sqlBlock.numRetries)
+            sqlBlock.numRetries += 1
+            sqlBlock.lastExecAttempt = datetime.now()
+            if sqlBlock.retryAgain():
+                # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
+                if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
+                    for element in sqlBlock.insertList:
+                        sqlB = MonkeeSQLblock(
+                            query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
+                        self.sqlBHandler.toQ(
+                            sqlB=sqlB, priority=priority)
+                        print(
+                            f'sqlBlock.numRetries = {sqlBlock.numRetries}')
+                else:
+
+                    self.sqlBHandler.toQ(sqlB=sqlBlock, priority=priority)
+
+                err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+                logging.info(err)
+                print(err)
+            else:
+                err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+                logging.error(err)
+                print(err)
+
+            self.sqlClient.dispose()
+
+    def executeBlock_OLD(self, sqlBlock):
 
         with self.sqlClient.connect() as conn:
             try:
@@ -247,11 +362,12 @@ class MonkeeSQLblockWorker:
             lastExecAttempt = mu.getval(dataFromRedis, "lastExecAttempt")
             if numRetries == 0:
                 return dataFromRedis, False
-            elif lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=5 * numRetries):
+            elif lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=1.5 ** numRetries):
                 return dataFromRedis, False
             else:
                 sqlB = MonkeeSQLblock()
                 sqlB.makeFromSerial(serial_=dataFromRedis)
+                time.sleep(1)
                 self.sqlBHandler.toQ(sqlB, priority=priority)
 
         return None, True
@@ -268,46 +384,50 @@ class MonkeeSQLblockWorker:
 
     def sendFlare(self, messageData='awaken'):
         data = messageData.encode("utf-8")
-        future = self.sqlBHandler.pubsub.publish(self.topic_path, data)
-        res = future.result()
-        print(f"Published message {res} to {self.topic_path}.")
+        if self.sqlBHandler.pubsub:
+            future = self.sqlBHandler.pubsub.publish(self.topic_path, data)
+            res = future.result()
+            print(f"Published message {res} to {self.topic_path}.")
 
     def sortBatch(self, batch):
-        retDict = {}
-        retList = []
-        transactions = []
+        batchDict = {}
+        batchList = []
+        transactionList = []
         for line in batch:
             isTransaction = mu.getval(line, "isTransaction", 0)
-
+            # The reason that non-transactions are broken up out of their sqbs is so that similar queries can be batched,
+            # meaning that all sqbs in this batch where the query part is the same, but only the parameters differ are bundled together and executed as one.
             if isTransaction == 0:
                 query = mu.getval(line, "query")
-                # soloExecution = flagging this element to be executed on its own, i.e. not as part of a batch
+
                 soloExecution = mu.getval(line, "soloExecution", 0)
                 numRetries = mu.getval(line, "numRetries", 0)
                 maxRetries = mu.getval(line, "maxRetries", 0)
                 lastExecAttempt = mu.getval(line, "lastExecAttempt")
                 if query:
                     if soloExecution == 0:
-                        if query not in retDict:
-                            retDict[query] = []
-                        retDict[query].append(line["insertList"])
-                    elif soloExecution == 1:
-                        retList.append(
+                        if query not in batchDict:
+                            batchDict[query] = []
+                        batchDict[query].append(line["insertList"])
+                    elif soloExecution == 1:  # soloExecution = flagging this element to be executed on its own, i.e. not as part of a batch
+                        batchList.append(
                             [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt])
             elif isTransaction == 1:
-                # TODO: add the line's queries to an atomic transaction block. transactions is a list of [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt] lines that are all executed as one transaction
-                print('adding to transaction block...')
-                sqbs = mu.getval(line, 'transactionSqb', [])
+                # if this is a transaction, there is no batching. This implies that the sqb (containing the transaction) can be passed through directly.
+                # TODO: add the line's queries to an atomic transaction block. transactionList is a list of [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt] lines that are all executed as one transaction
+                """sqbs = mu.getval(line, 'transactionSqb', [])
                 transaction_i = []
                 for sqb in sqbs:
                     transaction_i.append([sqb["query"], sqb["insertList"], sqb["numRetries"],
                                           sqb["maxRetries"], sqb["soloExecution"], sqb["lastExecAttempt"]])
-                transactions.append(transaction_i)
+                transactionList.append(transaction_i)
+                """
+                transactionList.append(line)
 
-        for q in retDict:
-            retList.append([q, retDict[q], 0, 30, 0, lastExecAttempt])
+        for q in batchDict:
+            batchList.append([q, batchDict[q], 0, 30, 0, lastExecAttempt])
 
-        return retList, transactions
+        return batchList, transactionList
 
     def reportOnQueues(self):
 
@@ -362,20 +482,29 @@ class MonkeeSQLblockWorker:
                     if sqlB:
                         batch.append(sqlB)
                     k += 1
-                sortedBatches, transactions = self.sortBatch(batch)
+                sortedBatches, transactionList = self.sortBatch(batch)
 
                 for sb in sortedBatches:
                     sqb = MonkeeSQLblock(
                         query=sb[0], insertList=sb[1], numRetries=sb[2], maxRetries=sb[3], soloExecution=sb[4], lastExecAttempt=sb[5])
-                    self.executeBlock(sqb)
+                    self.executeBlock(sqb, priority=priority)
 
-                for transactionBatch in transactions:
-                    transactionBlock = []
-                    for transactionElement in transactionBatch:
+                for transaction_i in transactionList:
+                    # transaction_i is a sqb, probably with more than one transactionSqb entry
+                    sqb = MonkeeSQLblock(
+                        query=transaction_i['query'], insertList=transaction_i['insertList'],
+                        numRetries=transaction_i['numRetries'], maxRetries=transaction_i['maxRetries'],
+                        soloExecution=transaction_i['soloExecution'], lastExecAttempt=transaction_i['lastExecAttempt'],
+                        transactionSqb=transaction_i['transactionSqb'])
+                    self.executeBlock(sqb, priority=priority)
+
+                    """transactionBlock = []
+                    for transactionElement in transaction_i:
                         sqb = MonkeeSQLblock(
                             query=transactionElement[0], insertList=transactionElement[1], numRetries=transactionElement[2], maxRetries=transactionElement[3], soloExecution=transactionElement[4], lastExecAttempt=transactionElement[5])
                         transactionBlock.append(sqb)
-                    self.executeBlock(transactionBlock)
+                    self.executeBlock(transactionBlock)"""
+                    # TODO: do not pass an array (txBlock) to executeBlock. Pass the sqb and let executeBlock unpack the sqb's array
 
                 howLong = mu.dateDiff(
                     'sec', startTs, datetime.now(timezone.utc))
