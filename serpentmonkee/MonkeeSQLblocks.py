@@ -291,7 +291,8 @@ class MonkeeSQLblockWorker:
             lastExecAttempt = mu.getval(dataFromRedis, "lastExecAttempt")
             if numRetries == 0:
                 return dataFromRedis, False
-            elif lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=1.5 ** numRetries):
+            # elif lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=1.5 ** numRetries):
+            elif lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=2 * numRetries):
                 return dataFromRedis, False
             else:
                 sqlB = MonkeeSQLblock()
@@ -446,7 +447,9 @@ class MonkeeSQLblockWorker:
 
         if howLong >= forHowLong - inactivityBuffer and qlen > 0:
             # numFlares = self.cypherQueues.totalInWaitingQueues / 10
-            for k in range(1):
-                print(f'sending flare (max 3) {k}')
+            #numFlares = 3
+            numFlares = 0
+            for k in range(numFlares):
+                print(f'sending flare (max {numFlares}) {k}')
                 self.sendFlare()
                 time.sleep(0.5)
