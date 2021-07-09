@@ -273,77 +273,6 @@ class MonkeeSQLblockWorker:
 
             self.sqlClient.dispose()
 
-    def executeBlock_OLD(self, sqlBlock):
-
-        with self.sqlClient.connect() as conn:
-            try:
-                # if sqlBlock is a list of sqlBlocks, run it as one transaction
-                if isinstance(sqlBlock, list):
-                    with conn.begin():
-                        for block in sqlBlock:
-                            theBlock = block
-                            conn.execute(
-                                block.query,
-                                block.insertList
-                            )
-                else:
-                    theBlock = sqlBlock
-                    conn.execute(
-                        sqlBlock.query,
-                        sqlBlock.insertList
-                    )
-                    conn.commit()
-
-            except BrokenPipeError as e:
-                logging.info(repr(e))
-                theBlock.numRetries += 1
-                theBlock.lastExecAttempt = datetime.now()
-                if theBlock.retryAgain():
-                    # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
-                    if len(theBlock.insertList) >= 1 and isinstance(theBlock.insertList[0], list):
-                        for element in theBlock.insertList:
-                            sqlB = MonkeeSQLblock(
-                                query=theBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
-                            self.sqlBHandler.toQ(sqlB=sqlB)
-                            print(
-                                f'theBlock.numRetries = {theBlock.numRetries}')
-                    elif len(theBlock.insertList) >= 1:
-
-                        self.sqlBHandler.toQ(sqlB=sqlBlock)
-
-                    err = f'{theBlock.numRetries} fails | {repr(e)} | Retrying SQL: {theBlock.query} | {theBlock.insertList} '
-                    logging.info(err)
-                else:
-                    err = f'!! {theBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {theBlock.query} | {theBlock.insertList}'
-                    logging.error(err)
-
-                self.sqlClient.dispose()
-
-            except Exception as e:
-                logging.info(repr(e))
-                theBlock.numRetries += 1
-                theBlock.lastExecAttempt = datetime.now()
-                if theBlock.retryAgain():
-                    # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
-                    if len(theBlock.insertList) >= 1 and isinstance(theBlock.insertList[0], list):
-                        for element in theBlock.insertList:
-                            sqlB = MonkeeSQLblock(
-                                query=theBlock.query, insertList=element, numRetries=theBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
-                            self.sqlBHandler.toQ(sqlB=sqlB)
-                            print(
-                                f'theBlock.numRetries = {theBlock.numRetries}')
-                    elif len(theBlock.insertList) >= 1:
-
-                        self.sqlBHandler.toQ(sqlB=sqlBlock)
-
-                    err = f'{theBlock.numRetries} fails | {repr(e)} | Retrying SQL: {theBlock.query} | {theBlock.insertList}'
-                    logging.info(err)
-                else:
-                    err = f'!! {theBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {theBlock.query} | {theBlock.insertList}'
-                    logging.error(err)
-
-                self.sqlClient.dispose()
-
     def popNextBlock(self, priority):
         if priority == 'H':
             theQ = self.sqlBHandler.sqlQname_H
@@ -367,7 +296,7 @@ class MonkeeSQLblockWorker:
             else:
                 sqlB = MonkeeSQLblock()
                 sqlB.makeFromSerial(serial_=dataFromRedis)
-                time.sleep(1)
+                time.sleep(numRetries)
                 self.sqlBHandler.toQ(sqlB, priority=priority)
 
         return None, True
@@ -517,7 +446,7 @@ class MonkeeSQLblockWorker:
 
         if howLong >= forHowLong - inactivityBuffer and qlen > 0:
             # numFlares = self.cypherQueues.totalInWaitingQueues / 10
-            for k in range(3):
+            for k in range(1):
                 print(f'sending flare (max 3) {k}')
                 self.sendFlare()
                 time.sleep(0.5)
