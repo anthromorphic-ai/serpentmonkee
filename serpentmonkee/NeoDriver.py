@@ -19,12 +19,11 @@ from serpentmonkee.PubSubMonkee import PubSubMonkee
 
 
 class NeoDriver:  # --------------------------------------------------------------------
-    def __init__(self, neoDriver=None, redisClient=None, publisher=None, projectId=None, topicId=None, sqlClient=None, callingCF=None, maxConnectionLifetime=3600,
+    def __init__(self, neoDriver=None, redisClient=None, publisher=None, projectId=None, topicId=None, callingCF=None, maxConnectionLifetime=3600,
                  maxTransactionRetryTime=2):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
-        self.sqlClient = sqlClient
         self.callingCF = callingCF
         self.redisClient = redisClient
         self.db_fb = None
