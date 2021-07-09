@@ -216,7 +216,7 @@ class MonkeeSQLblockWorker:
                         sqlBlock.query,
                         sqlBlock.insertList
                     )
-                    conn.commit()
+                    # conn.commit()
 
                     """
                         except BrokenPipeError as e:
