@@ -1,17 +1,31 @@
+# _METADATA_:Version: 15
+# _METADATA_:Timestamp: 2021-06-18 16:11:18.297375+00:00
+# _METADATA_:MD5: f05813b3e6cbf0196dbacc4eec8fbdb1
+# _METADATA_:Publish:                                                                                None
+
+
+# _METADATA_:
 from datetime import datetime, timedelta, timezone
+import time
 import logging
+import re
 
 
 class MonkeeRedis:
-    def __init__(
-        self, cfName, redisClient, projectName, userUid, humanDocRef, inDebugMode=False
-    ):
+    """
+    Wrapper for dealing with redis.
+    - fb_db:  Firebase client. if None, session_id checks cannot be done
+    - cfName: the name of the calling CF. If None, checks cannot be done for the last CF call
+    """
 
+    def __init__(
+        self, fb_db, cfName, redisClient, appUid='', userUid='', inDebugMode=False
+    ):
+        self.fb_db = fb_db
         self.callingCF = cfName
         self.redis = redisClient
         self.userUid = userUid
-        self.projectName = projectName
-        self.humanDocRef = humanDocRef
+        self.appUid = appUid
         self.inDebugMode = inDebugMode
         self.sessionId = None
         self.timestamp = datetime.now(timezone.utc)
@@ -22,37 +36,97 @@ class MonkeeRedis:
         if self.inDebugMode:
             print(stringg)
 
-    def set_last_cf_call(self):
-        """Sets the last time that this CF was called in this project by this particular user"""
-        fieldName = "CFcall={}".format(self.callingCF)
+    def set_play_event(self, contentUid, playTime):
+        """
+        Sets the time that the content was played/started
+        """
+        self.dprint(
+            "setting set_play_event = {} - {}".format(contentUid, playTime))
+        fieldName = "ContentPlay={}".format(contentUid)
         self.set_project_human_val(
-            fieldName=fieldName, dataType="datetime", value=self.timestamp
+            fieldName=fieldName, dataType="datetimeNTZ", value=playTime, expireInSeconds=60 * 60
         )
 
-    def get_last_cf_call(self):
-        """Gets the last time that this CF was called in this project by this particular user"""
+    def kill_play_event(self, contentUid):
+        fieldName = "ContentPlay={}".format(contentUid)
+        self.kill_project_human_val(fieldName=fieldName)
 
-        fieldName = "CFcall={}".format(self.callingCF)
-        print("get_last_cf_call starting for {}".format(fieldName))
+    def get_play_event(self, contentUid):
+        """
+        Gets the last time playEvent for this content for this user, assuming that it's still in Redis
+        """
+        self.dprint("getting set_play_event = {} ".format(contentUid))
+        fieldName = "ContentPlay={}".format(contentUid)
         return self.get_project_human_val(fieldName=fieldName)
 
-    def get_sec_since_last_cf_call(self):
-        llt = self.get_last_cf_call()
+    def get_time_in_content(self, lastPlayTime, endTime):
+        """
+        Calcs the time-in-seconds spent in the content
+        """
 
-        if llt is None:
-            print("get_sec_since_last_cf_call ={}".format("None"))
-            return 1000
+        if lastPlayTime is None:
+            self.dprint(
+                "get_time_in_content ={}.".format("None"))
+            return None
         else:
-            timeDiff = self.timestamp - llt
-            print("get_sec_since_last_cf_call ={}".format(
+            timeDiff = endTime - lastPlayTime
+            self.dprint("get_time_in_content ={}".format(
                 timeDiff.total_seconds()))
             return timeDiff.total_seconds()
 
-    def set_project_human_val(self, fieldName, dataType, value, expireInSeconds=None):
-        """Sets the compound key [self.projectName + ":" + self.userUid + ":" + fieldName] to
-        value [dataType + "|" + str(value)]
+    def set_last_cf_call(self, eventTime):
+        """Sets the last time that this CF was called in this project by this particular user"""
+        if self.callingCF:
+            self.dprint("setting last_cf_call = {}".format(self.callingCF))
+            fieldName = "CFcall={}".format(self.callingCF)
+            self.set_project_human_val(
+                fieldName=fieldName, dataType="datetimeNTZ", value=eventTime, expireInSeconds=60 * 60 * 24 * 30
+            )
+        else:
+            self.dprint("set_last_cf_call: no CF name specified")
+
+    def get_last_cf_call(self):
+        """Gets the last time that this CF was called in this project by this particular user"""
+        if self.callingCF:
+            fieldName = "CFcall={}".format(self.callingCF)
+            return self.get_project_human_val(fieldName=fieldName)
+        return None
+
+    def get_sec_since_last_cf_call(self, eventTime):
+        llt = self.get_last_cf_call()
+
+        if llt is None:
+            self.dprint(
+                "get_sec_since_last_cf_call ={}. Setting it now".format("None"))
+            self.set_project_human_val(
+                fieldName="lastLogTime", dataType="datetimeNTZ", value=eventTime
+            )
+
+            return 100
+        else:
+            if not eventTime.tzinfo and not llt.tzinfo:
+                timeDiff = eventTime - llt
+            else:
+                timeDiff = self.timestamp - llt
+            self.dprint("get_sec_since_last_cf_call ={}".format(
+                timeDiff.total_seconds()))
+            return timeDiff.total_seconds()
+
+    def kill_project_human_val(self, fieldName):
         """
-        key = self.projectName + ":" + self.userUid + ":" + fieldName
+        Removes the given key from Redis
+        """
+        key = self.appUid + ":" + self.userUid + ":" + fieldName
+        if self.redis is not None:
+            self.redis.delete(key)
+
+    def set_project_human_val(self, fieldName, dataType, value, expireInSeconds=None):
+        """Sets the compound key [self.appUid + ":" + self.userUid + ":" + fieldName] to
+        value [dataType + "|" + str(value)]
+
+        - dataType one of ["datetime", "datetimeNTZ", "int", "str"]. 
+        """
+        key = self.appUid + ":" + self.userUid + ":" + fieldName
         val = dataType + "|" + str(value)
         self.dprint("set_project_human_val: key={}, val={}".format(key, val))
         if self.redis is not None:
@@ -61,11 +135,11 @@ class MonkeeRedis:
                 self.redis.expire(key, expireInSeconds)
 
     def get_project_human_val(self, fieldName):
-        """Gets the compound key [self.projectName + ":" + self.userUid + ":" + fieldName]
+        """Gets the compound key [self.appUid + ":" + self.userUid + ":" + fieldName]
         from redis and casts it back to native based on the [dataType] used in its initial storing
         """
         if self.redis is not None:
-            key = self.projectName + ":" + self.userUid + ":" + fieldName
+            key = self.appUid + ":" + self.userUid + ":" + fieldName
             val = self.redis.get(key)
             if val is None or val == "None":
                 return None
@@ -79,6 +153,8 @@ class MonkeeRedis:
                 "get_project_human_val: {} = {} ({})".format(
                     key, value, dataType)
             )
+            # if value[-6]='+' and value[-3]==":" and dataType='datetime':
+
             return self.format_val(dataType, value)
         else:
             return None
@@ -88,8 +164,9 @@ class MonkeeRedis:
         if val is None:
             return None
         try:
-            if dataType == "datetime":
-                return datetime.strptime(val, "%Y-%m-%d %H:%M:%S.%f%z")
+            if dataType in ["datetime", "datetimeNTZ"]:
+                fmt = self.inferDTFormat(val)
+                return datetime.strptime(val, fmt)
             elif dataType == "int":
                 return int(val)
             else:
@@ -100,7 +177,7 @@ class MonkeeRedis:
 
     def get_session_id(self):
         self.sessionId = self.get_project_human_val("sessionId")
-        print("get_session_id={}".format(self.sessionId))
+        self.dprint("get_session_id={}".format(self.sessionId))
         return self.sessionId
 
     def calc_session_id(self, time_diff):
@@ -108,27 +185,50 @@ class MonkeeRedis:
         if self.sessionId is None:
             self.sessionId = 1
             self.set_session_id()
-            return self.sessionId, None
+            return self.sessionId, None, None
         elif time_diff > self.minsBetweenSessions * 60:
             self.sessionId += 1
-            print("incrementing session ID to {}".format(self.sessionId))
+            self.dprint("incrementing session ID to {}".format(self.sessionId))
             self.set_session_id()
             self.timeSinceLastEvent = time_diff
-            return self.sessionId, self.timeSinceLastEvent
+            return self.sessionId, self.timeSinceLastEvent, True
         elif time_diff <= self.minsBetweenSessions * 60:
-            print("keeping session ID as {}".format(self.sessionId))
-            return self.sessionId, self.timeSinceLastEvent
+            self.dprint("keeping session ID as {}".format(self.sessionId))
+            self.timeSinceLastEvent = time_diff
+            return self.sessionId, self.timeSinceLastEvent, False
 
     def set_session_id(self):
         self.set_project_human_val("sessionId", "int", self.sessionId)
 
-        self.humanDocRef.set(
-            {
-                "sessionNumber": self.sessionId,
-                "session": {
-                    "tag": "session" + str(self.sessionId),
-                    "answeredAt": self.timestamp,
+        if self.fb_db and self.sessionId >= 1 and len(self.userUid) > 2:
+            humanResultRef = self.fb_db.collection(
+                "apps", self.appUid, "humans", self.userUid, "results"
+            ).document("session")
+
+            humanResultRef.set(
+                {
+                    "sessionNumber": self.sessionId,
+                    "src": "MonkeeRedis from monkee_log_v2",
+                    "session": {
+                        "tag": "session" + str(self.sessionId),
+                        "answeredAt": self.timestamp,
+                        "src": "MonkeeRedis from monkee_log_v2"
+                    },
                 },
-            },
-            merge=True,
-        )
+                merge=True,
+            )
+
+    def inferDTFormat(self, dtString):
+        dtFormats = []
+        dtFormats.append({"re": re.compile(
+            r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d*\+\d{2}:\d{2}$"), "fmt": "%Y-%m-%d %H:%M:%S.%f%z"})
+        dtFormats.append({"re": re.compile(
+            r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d*$"), "fmt": "%Y-%m-%d %H:%M:%S.%f"})
+        dtFormats.append({"re": re.compile(
+            r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}$"), "fmt": "%Y-%m-%d %H:%M:%S"})
+
+        for f in dtFormats:
+            if len(re.findall(f["re"], dtString)) > 0:
+                return f["fmt"]
+
+        return None

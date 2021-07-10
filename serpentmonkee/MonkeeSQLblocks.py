@@ -15,7 +15,8 @@ import time
 import pg8000
 from pg8000 import ProgrammingError, IntegrityError
 
-import serpentmonkee.UtilsMonkee as mu
+import UtilsMonkee as mu
+from MonkeeRedis import MonkeeRedis
 
 
 class MonkeeSQLblockHandler:
@@ -37,14 +38,42 @@ class MonkeeSQLblockHandler:
         if self.pubsub:
             self.topic_path = self.pubsub.topic_path(
                 self.environmentName, self.topic_id)
+        if self.redis_client:
+            self.redis = MonkeeRedis(cfName=None, fb_db=None, redisClient=self.redis_client,
+                                     inDebugMode=False)
+        else:
+            self.redis = None
 
-    def sendFlare(self, messageData='awaken'):
+    def sendFlare(self, messageData='awaken', flareDeadspaceSeconds=10):
+        """
+        Sends a "flare" (a message to the pubsub topic path = self.topic_path) which will spark the SQL worker to jump into action.
+        A flare will only be sent if there's been no flare sending in the last (flareDeadspaceSeconds) seconds (defaults to 10).
+        """
+        flareSendable = False
+        rightNow = datetime.now(timezone.utc)
         data = messageData.encode("utf-8")
-        if self.pubsub:
+        if self.redis_client:
+            # Get the last flare-send time
+            lastFlare = self.redis.get_project_human_val(
+                'SQLHandlerFlareSendTime')
+            if not lastFlare:
+                flareSendable = True
+            # If the seconds-elapsed since this is longer than flareDeadspaceSeconds, send another one. else: eat it.
+            elif mu.dateDiff('second', lastFlare, rightNow) >= flareDeadspaceSeconds:
+                flareSendable = True
+
+        if self.pubsub and flareSendable:
+            self.redis.set_project_human_val(
+                'SQLHandlerFlareSendTime', 'datetime', rightNow)
+            print(f'sending flare!')
             future = self.pubsub.publish(self.topic_path, data)
             future.result()
 
     def toQ(self, sqlB, priority='L'):
+        """
+        Sends the given (sqlB) to the (priority) SQL queue.
+        - priority can be one of ['H', 'M', 'L', 'ERR']
+        """
         if priority == 'L':
             sqlQname = self.sqlQname_L
         elif priority == 'M':
@@ -58,17 +87,22 @@ class MonkeeSQLblockHandler:
 
         serial_ = json.dumps(sqlB.instanceToSerial(), cls=mu.RoundTripEncoder)
         self.redis_client.rpush(sqlQname, serial_)
-        # Removing the flaring for now:
-        # self.sendFlare()
+        self.sendFlare()
 
     def killQueue(self):
-        print('KILLING QUEUE')
+        """
+        Kills all queues.
+        """
+        print('KILLING QUEUES')
         self.redis_client.delete(self.sqlQname_H)
         self.redis_client.delete(self.sqlQname_M)
         self.redis_client.delete(self.sqlQname_L)
         self.redis_client.delete(self.sqlQname_ERR)
 
     def getQLens(self):
+        """
+        Print all the queues' lengths
+        """
         lenString = "Q LENGTHS: "
         for q in self.sqlQs:
             l = self.redis_client.llen(q)
@@ -350,13 +384,6 @@ class MonkeeSQLblockWorker:
 
         return self.sqlBHandler.redis_client.llen(theQ)
 
-    def sendFlare(self, messageData='awaken'):
-        data = messageData.encode("utf-8")
-        if self.sqlBHandler.pubsub:
-            future = self.sqlBHandler.pubsub.publish(self.topic_path, data)
-            res = future.result()
-            print(f"Published message {res} to {self.topic_path}.")
-
     def sortBatch(self, batch):
         batchDict = {}
         batchList = []
@@ -418,7 +445,7 @@ class MonkeeSQLblockWorker:
                     qArray.append(elementParsed)
 
                 qDict[qcontentKey] = qArray
-            docUid = str(1625607464 * 3 - int(time.time()))
+            docUid = mu.makeAscendingUid()
 
             self.reportCollectionRef.document(docUid).set(qDict)
 
@@ -469,9 +496,7 @@ class MonkeeSQLblockWorker:
         if howLong >= forHowLong - inactivityBuffer and qlen > 0:
             numFlares = 3
             for k in range(numFlares):
-                print(f'sending flare (max {numFlares}) {k}')
-                self.sendFlare()
-                time.sleep(0.5)
+                self.sqlBHandler.sendFlare()
 
     def goToWorkOnErrQ(self, forHowLong=60, inactivityBuffer=10):
         """
@@ -505,5 +530,4 @@ class MonkeeSQLblockWorker:
             numFlares = 0
             for k in range(numFlares):
                 print(f'sending flare (max {numFlares}) {k}')
-                self.sendFlare()
-                time.sleep(0.5)
+                self.sqlBHandler.sendFlare()

@@ -175,3 +175,13 @@ def describe_time(hh_ago):
         ret = str(dd_ago) + " days ago"
 
     return ret
+
+
+def makeAscendingUid():
+    """
+    Creates a uid such that new uids are always alphabetically in front of older ones.
+    For typical use in creating FB doc UIDs such that new docs will show up at the top of the collection
+    """
+    docUid = str(1625607464 * 3 - int(time.time()))
+    uuid = get_uuid()
+    return f'{docUid}_{uuid}'
