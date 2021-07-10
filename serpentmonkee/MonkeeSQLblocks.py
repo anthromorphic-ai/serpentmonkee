@@ -15,8 +15,8 @@ import time
 import pg8000
 from pg8000 import ProgrammingError, IntegrityError
 
-import UtilsMonkee as mu
-from MonkeeRedis import MonkeeRedis
+import serpentmonkee.UtilsMonkee as mu
+from serpentmonkee.MonkeeRedis import MonkeeRedis
 
 
 class MonkeeSQLblockHandler:
@@ -297,6 +297,7 @@ class MonkeeSQLblockWorker:
         # TODO: write my own parser for exceptions that'll prevent syntax errors from being retried.
         except Exception as e:
             logging.info(repr(e))
+            print(f'EXCEPTION: type = {type(e)}')
             self.persistErrorDetailInFB(e, sqlBlock.numRetries)
             sqlBlock.numRetries += 1
             sqlBlock.lastExecAttempt = datetime.now()
