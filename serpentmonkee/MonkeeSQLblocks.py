@@ -223,9 +223,10 @@ class MonkeeSQLblockWorker:
             except Exception as e:
                 print(repr(e))
 
-    def persistErrorDetailInFB(self, exception, attempt):
+    def persistErrorDetailInFB(self, exception, attempt, willBeRetried=True):
         lst = dir(exception)
-        dict_ = {'attempt': attempt, 'createdAt': datetime.now()}
+        dict_ = {'attempt': attempt, 'createdAt': datetime.now(),
+                 'willBeRetried': willBeRetried, '_type': str(type(exception))}
         if 'orig' in lst:
             try:
                 dict_['orig_args'] = exception.orig.args[0]
@@ -245,11 +246,12 @@ class MonkeeSQLblockWorker:
             dict_['detail'] = exception.detail
 
         if self.fb_db:
-            destDoc = self.fb_db.collection('logging/sqlQ/errors').document()
+            destDoc = self.fb_db.collection(
+                'logging/sqlQ/errors').document(mu.makeAscendingUid())
             destDoc.set(dict_)
 
     def executeBlock(self, sqlBlock, priority='L'):
-        attemptsBeforeSentToErrQ = 2
+
         try:
             with self.sqlClient.connect() as conn:
 
@@ -294,50 +296,70 @@ class MonkeeSQLblockWorker:
 
                             self.sqlClient.dispose()"""
 
-        # TODO: write my own parser for exceptions that'll prevent syntax errors from being retried.
-        except Exception as e:
-            logging.info(repr(e))
-            print(f'EXCEPTION: type = {type(e)}')
-            self.persistErrorDetailInFB(e, sqlBlock.numRetries)
-            sqlBlock.numRetries += 1
-            sqlBlock.lastExecAttempt = datetime.now()
-            if sqlBlock.retryAgain():
-                # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
-                if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
-                    for element in sqlBlock.insertList:
-                        sqlB = MonkeeSQLblock(
-                            query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt,
-                            priority=priority)
-                        if sqlBlock.numRetries <= attemptsBeforeSentToErrQ:
-                            self.sqlBHandler.toQ(
-                                sqlB=sqlB, priority=priority)
-                        else:  # if the number of retries is attemptsBeforeSentToErrQ+, the sqb goes to the error queue
-                            sqlB.remainInErrorQUntil = datetime.now(
-                            ) + timedelta(seconds=1.5 ** sqlBlock.numRetries)
-                            self.sqlBHandler.toQ(
-                                sqlB=sqlB, priority='ERR')
+        except sqlalchemy.exc.ProgrammingError as e:
+            self.logSqlErrorNoRetry(e, sqlBlock)
 
-                        print(
-                            f'sqlBlock.numRetries = {sqlBlock.numRetries}')
-                else:
-                    sqlBlock.priority = priority
+        except Exception as e:
+            # This last-resort except clause will cause the statement to be retried.
+            self.logSqlErrorAndRetry(e, sqlBlock, priority=priority)
+
+        finally:
+            print(
+                'serpentmonkee.MonkeeSQLblocks.MonkeeSQLblockWorker.executeBlock.finally')
+
+    def logSqlErrorNoRetry(self, e, sqlBlock):
+        """
+        Logs the Exception (e) and saves a record of it in Firebase. **Does not queue the SQL block for a retry**
+        """
+        logging.error(repr(e))
+        self.persistErrorDetailInFB(
+            e, sqlBlock.numRetries, willBeRetried=False)
+
+    def logSqlErrorAndRetry(self, e, sqlBlock, priority='L', attemptsBeforeSentToErrQ=2):
+        """
+        Logs the Exception (e) and saves a record of it in Firebase. **If the SQL block's number of attempts < the max number of retries, the SQL block is queued for a retry**
+        """
+        logging.info(repr(e))
+        print(f'EXCEPTION: type = {type(e)}')
+        self.persistErrorDetailInFB(e, sqlBlock.numRetries)
+
+        sqlBlock.numRetries += 1
+        sqlBlock.lastExecAttempt = datetime.now()
+        if sqlBlock.retryAgain():
+            # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
+            if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
+                for element in sqlBlock.insertList:
+                    sqlB = MonkeeSQLblock(
+                        query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt,
+                        priority=priority)
                     if sqlBlock.numRetries <= attemptsBeforeSentToErrQ:
-                        self.sqlBHandler.toQ(sqlB=sqlBlock, priority=priority)
+                        self.sqlBHandler.toQ(
+                            sqlB=sqlB, priority=priority)
                     else:  # if the number of retries is attemptsBeforeSentToErrQ+, the sqb goes to the error queue
-                        sqlBlock.remainInErrorQUntil = datetime.now(
+                        sqlB.remainInErrorQUntil = datetime.now(
                         ) + timedelta(seconds=1.5 ** sqlBlock.numRetries)
                         self.sqlBHandler.toQ(
-                            sqlB=sqlBlock, priority='ERR')
+                            sqlB=sqlB, priority='ERR')
 
-                err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList}'
-                logging.info(err)
-                print(err)
+                    print(
+                        f'sqlBlock.numRetries = {sqlBlock.numRetries}')
             else:
-                err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
-                logging.error(err)
-                print(err)
+                sqlBlock.priority = priority
+                if sqlBlock.numRetries <= attemptsBeforeSentToErrQ:
+                    self.sqlBHandler.toQ(sqlB=sqlBlock, priority=priority)
+                else:  # if the number of retries is attemptsBeforeSentToErrQ+, the sqb goes to the error queue
+                    sqlBlock.remainInErrorQUntil = datetime.now(
+                    ) + timedelta(seconds=1.5 ** sqlBlock.numRetries)
+                    self.sqlBHandler.toQ(
+                        sqlB=sqlBlock, priority='ERR')
 
-            self.sqlClient.dispose()
+            err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+            logging.info(err)
+            print(err)
+        else:
+            err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+            logging.error(err)
+            print(err)
 
     def popNextBlock(self, priority):
         if priority == 'H':
@@ -501,7 +523,7 @@ class MonkeeSQLblockWorker:
 
     def goToWorkOnErrQ(self, forHowLong=60, inactivityBuffer=10):
         """
-        An agent which pops elements from the ERR queue and repatriates these elements back to their original queues IF they have served their time
+        An agent which pops elements from the ERR queue and repatriates these elements back to their original queues if they have served their time
         in the error queue
         """
         print(f'XXX goingToWork. ForHowLong={forHowLong} s')
