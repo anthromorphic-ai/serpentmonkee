@@ -29,7 +29,7 @@ class MonkeeSQLblockHandler:
         self.redis_client = redis_client
 
         self.pubsub = pubsub
-        self.topic_id = 'sql_worker'
+        self.topic_id = 'sql__worker'
         self.sqlQname_H = 'sqlWaiting_high'
         self.sqlQname_M = 'sqlWaiting_medium'
         self.sqlQname_L = 'sqlWaiting_low'
@@ -56,11 +56,15 @@ class MonkeeSQLblockHandler:
             # Get the last flare-send time
             lastFlare = self.redis.get_project_human_val(
                 'SQLHandlerFlareSendTime')
+            print(f'last flare was at {lastFlare}')
             if not lastFlare:
                 flareSendable = True
             # If the seconds-elapsed since this is longer than flareDeadspaceSeconds, send another one. else: eat it.
-            elif mu.dateDiff('second', lastFlare, rightNow) >= flareDeadspaceSeconds:
-                flareSendable = True
+            else:
+                secsAgo = mu.dateDiff('second', lastFlare, rightNow)
+                print(f'which was  {lastFlare} seconds ago')
+                if secsAgo >= flareDeadspaceSeconds:
+                    flareSendable = True
 
         if self.pubsub and flareSendable:
             self.redis.set_project_human_val(
@@ -207,12 +211,8 @@ class MonkeeSQLblockWorker:
         self.sqlBHandler = sqlBHandler
         self.environmentName = environmentName
         self.sqlClient = sqlClient
-        self.topic_id = 'sql_worker'
         self.reportCollectionRef = reportCollectionRef
         self.fb_db = fb_db
-        if self.sqlBHandler.pubsub:
-            self.topic_path = self.sqlBHandler.pubsub.topic_path(
-                self.environmentName, self.topic_id)
 
     def syncRunSQL(self, sql):
         with self.sqlClient.connect() as conn:
