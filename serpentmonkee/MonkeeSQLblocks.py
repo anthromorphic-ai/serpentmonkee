@@ -16,7 +16,7 @@ import pg8000
 from pg8000 import ProgrammingError, IntegrityError
 
 import serpentmonkee.UtilsMonkee as mu
-#from serpentmonkee.MonkeeSqlMessenger import MonkeeSQLblock
+from serpentmonkee.MonkeeRedis import MonkeeRedis
 
 
 class MonkeeSQLblockHandler:
@@ -33,24 +33,55 @@ class MonkeeSQLblockHandler:
         self.sqlQname_H = 'sqlWaiting_high'
         self.sqlQname_M = 'sqlWaiting_medium'
         self.sqlQname_L = 'sqlWaiting_low'
+        self.sqlQname_ERR = 'sqlWaiting_error'
         self.sqlQs = [self.sqlQname_H, self.sqlQname_M, self.sqlQname_L]
         if self.pubsub:
             self.topic_path = self.pubsub.topic_path(
                 self.environmentName, self.topic_id)
+        if self.redis_client:
+            self.redis = MonkeeRedis(cfName=None, fb_db=None, redisClient=self.redis_client,
+                                     inDebugMode=False)
+        else:
+            self.redis = None
 
-    def sendFlare(self, messageData='awaken'):
+    def sendFlare(self, messageData='awaken', flareDeadspaceSeconds=10):
+        """
+        Sends a "flare" (a message to the pubsub topic path = self.topic_path) which will spark the SQL worker to jump into action.
+        A flare will only be sent if there's been no flare sending in the last (flareDeadspaceSeconds) seconds (defaults to 10).
+        """
+        flareSendable = False
+        rightNow = datetime.now(timezone.utc)
         data = messageData.encode("utf-8")
-        if self.pubsub:
+        if self.redis_client:
+            # Get the last flare-send time
+            lastFlare = self.redis.get_project_human_val(
+                'SQLHandlerFlareSendTime')
+            if not lastFlare:
+                flareSendable = True
+            # If the seconds-elapsed since this is longer than flareDeadspaceSeconds, send another one. else: eat it.
+            elif mu.dateDiff('second', lastFlare, rightNow) >= flareDeadspaceSeconds:
+                flareSendable = True
+
+        if self.pubsub and flareSendable:
+            self.redis.set_project_human_val(
+                'SQLHandlerFlareSendTime', 'datetime', rightNow)
+            print(f'sending flare!')
             future = self.pubsub.publish(self.topic_path, data)
             future.result()
 
     def toQ(self, sqlB, priority='L'):
+        """
+        Sends the given (sqlB) to the (priority) SQL queue.
+        - priority can be one of ['H', 'M', 'L', 'ERR']
+        """
         if priority == 'L':
             sqlQname = self.sqlQname_L
         elif priority == 'M':
             sqlQname = self.sqlQname_M
         elif priority == 'H':
             sqlQname = self.sqlQname_H
+        elif priority == 'ERR':
+            sqlQname = self.sqlQname_ERR
         else:
             sqlQname = self.sqlQname_L
 
@@ -59,12 +90,19 @@ class MonkeeSQLblockHandler:
         self.sendFlare()
 
     def killQueue(self):
-        print('KILLING QUEUE')
+        """
+        Kills all queues.
+        """
+        print('KILLING QUEUES')
         self.redis_client.delete(self.sqlQname_H)
         self.redis_client.delete(self.sqlQname_M)
         self.redis_client.delete(self.sqlQname_L)
+        self.redis_client.delete(self.sqlQname_ERR)
 
     def getQLens(self):
+        """
+        Print all the queues' lengths
+        """
         lenString = "Q LENGTHS: "
         for q in self.sqlQs:
             l = self.redis_client.llen(q)
@@ -87,16 +125,20 @@ class MonkeeSQLblock:
             soloExecution=0,
             lastExecAttempt=None,
             transactionStatements=[],
-            transactionSqb=[]):
+            transactionSqb=[],
+            priority='',
+            remainInErrQ=None):
 
         self.query = query
         self.insertList = insertList
-        self.createdAt = datetime.now(timezone.utc)
+        self.createdAt = datetime.now()
         self.queryTypeId = queryTypeId
         self.numRetries = numRetries
         self.maxRetries = maxRetries
         self.soloExecution = soloExecution
         self.lastExecAttempt = lastExecAttempt
+        self.priority = priority
+        self.remainInErrorQUntil = remainInErrQ
 
         self.statements = transactionStatements
         if len(transactionStatements) >= 1 or len(transactionSqb) >= 1:
@@ -112,7 +154,8 @@ class MonkeeSQLblock:
             for i in self.statements:
                 self.transactionSqb.append(i.instanceToSerial())
         self.serial_ = {"isTransaction": self.isTransaction, "query": self.query, "insertList": self.insertList, "queryTypeId": self.queryTypeId, "numRetries": self.numRetries, "maxRetries": self.maxRetries,
-                        "soloExecution": self.soloExecution, "lastExecAttempt": self.lastExecAttempt, "transactionSqb": self.transactionSqb}
+                        "soloExecution": self.soloExecution, "lastExecAttempt": self.lastExecAttempt, "transactionSqb": self.transactionSqb, 'priority': self.priority,
+                        "remainInErrorQUntil": self.remainInErrorQUntil}
         return self.serial_
 
     def retryAgain(self):
@@ -129,6 +172,9 @@ class MonkeeSQLblock:
             self.maxRetries = mu.getval(serial_, "maxRetries")
             self.soloExecution = mu.getval(serial_, "soloExecution")
             self.lastExecAttempt = mu.getval(serial_, "lastExecAttempt")
+            self.priority = mu.getval(serial_, "priority")
+            self.remainInErrorQUntil = mu.getval(
+                serial_, "remainInErrorQUntil")
             self.serial_ = self.instanceToSerial()
         elif self.isTransaction == 1:
             self.statements = mu.getval(serial_, "statements", [])
@@ -136,6 +182,9 @@ class MonkeeSQLblock:
             self.numRetries = mu.getval(serial_, "numRetries")
             self.maxRetries = mu.getval(serial_, "maxRetries")
             self.lastExecAttempt = mu.getval(serial_, "lastExecAttempt")
+            self.priority = mu.getval(serial_, "priority")
+            self.remainInErrorQUntil = mu.getval(
+                serial_, "remainInErrorQUntil")
             if len(self.statements) > 0 and len(self.transactionSqb) == 0:
 
                 for statement in self.statements:
@@ -174,9 +223,10 @@ class MonkeeSQLblockWorker:
             except Exception as e:
                 print(repr(e))
 
-    def persistErrorDetailInFB(self, exception, attempt):
+    def persistErrorDetailInFB(self, exception, attempt, willBeRetried=True):
         lst = dir(exception)
-        dict_ = {'attempt': attempt, 'createdAt': datetime.now(timezone.utc)}
+        dict_ = {'attempt': attempt, 'createdAt': datetime.now(),
+                 'willBeRetried': willBeRetried, '_type': str(type(exception))}
         if 'orig' in lst:
             try:
                 dict_['orig_args'] = exception.orig.args[0]
@@ -196,10 +246,12 @@ class MonkeeSQLblockWorker:
             dict_['detail'] = exception.detail
 
         if self.fb_db:
-            destDoc = self.fb_db.collection('logging/sqlQ/errors').document()
+            destDoc = self.fb_db.collection(
+                'logging/sqlQ/errors').document(mu.makeAscendingUid())
             destDoc.set(dict_)
 
     def executeBlock(self, sqlBlock, priority='L'):
+
         try:
             with self.sqlClient.connect() as conn:
 
@@ -244,34 +296,70 @@ class MonkeeSQLblockWorker:
 
                             self.sqlClient.dispose()"""
 
+        except sqlalchemy.exc.ProgrammingError as e:
+            self.logSqlErrorNoRetry(e, sqlBlock)
+
         except Exception as e:
-            logging.info(repr(e))
-            self.persistErrorDetailInFB(e, sqlBlock.numRetries)
-            sqlBlock.numRetries += 1
-            sqlBlock.lastExecAttempt = datetime.now()
-            if sqlBlock.retryAgain():
-                # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
-                if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
-                    for element in sqlBlock.insertList:
-                        sqlB = MonkeeSQLblock(
-                            query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
+            # This last-resort except clause will cause the statement to be retried.
+            self.logSqlErrorAndRetry(e, sqlBlock, priority=priority)
+
+        finally:
+            print(
+                'serpentmonkee.MonkeeSQLblocks.MonkeeSQLblockWorker.executeBlock.finally')
+
+    def logSqlErrorNoRetry(self, e, sqlBlock):
+        """
+        Logs the Exception (e) and saves a record of it in Firebase. **Does not queue the SQL block for a retry**
+        """
+        logging.error(repr(e))
+        self.persistErrorDetailInFB(
+            e, sqlBlock.numRetries, willBeRetried=False)
+
+    def logSqlErrorAndRetry(self, e, sqlBlock, priority='L', attemptsBeforeSentToErrQ=2):
+        """
+        Logs the Exception (e) and saves a record of it in Firebase. **If the SQL block's number of attempts < the max number of retries, the SQL block is queued for a retry**
+        """
+        logging.info(repr(e))
+        print(f'EXCEPTION: type = {type(e)}')
+        self.persistErrorDetailInFB(e, sqlBlock.numRetries)
+
+        sqlBlock.numRetries += 1
+        sqlBlock.lastExecAttempt = datetime.now()
+        if sqlBlock.retryAgain():
+            # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
+            if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
+                for element in sqlBlock.insertList:
+                    sqlB = MonkeeSQLblock(
+                        query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt,
+                        priority=priority)
+                    if sqlBlock.numRetries <= attemptsBeforeSentToErrQ:
                         self.sqlBHandler.toQ(
                             sqlB=sqlB, priority=priority)
-                        print(
-                            f'sqlBlock.numRetries = {sqlBlock.numRetries}')
-                else:
+                    else:  # if the number of retries is attemptsBeforeSentToErrQ+, the sqb goes to the error queue
+                        sqlB.remainInErrorQUntil = datetime.now(
+                        ) + timedelta(seconds=1.5 ** sqlBlock.numRetries)
+                        self.sqlBHandler.toQ(
+                            sqlB=sqlB, priority='ERR')
 
-                    self.sqlBHandler.toQ(sqlB=sqlBlock, priority=priority)
-
-                err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList}'
-                logging.info(err)
-                print(err)
+                    print(
+                        f'sqlBlock.numRetries = {sqlBlock.numRetries}')
             else:
-                err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
-                logging.error(err)
-                print(err)
+                sqlBlock.priority = priority
+                if sqlBlock.numRetries <= attemptsBeforeSentToErrQ:
+                    self.sqlBHandler.toQ(sqlB=sqlBlock, priority=priority)
+                else:  # if the number of retries is attemptsBeforeSentToErrQ+, the sqb goes to the error queue
+                    sqlBlock.remainInErrorQUntil = datetime.now(
+                    ) + timedelta(seconds=1.5 ** sqlBlock.numRetries)
+                    self.sqlBHandler.toQ(
+                        sqlB=sqlBlock, priority='ERR')
 
-            self.sqlClient.dispose()
+            err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+            logging.info(err)
+            print(err)
+        else:
+            err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
+            logging.error(err)
+            print(err)
 
     def popNextBlock(self, priority):
         if priority == 'H':
@@ -280,6 +368,8 @@ class MonkeeSQLblockWorker:
             theQ = self.sqlBHandler.sqlQname_M
         elif priority == 'L':
             theQ = self.sqlBHandler.sqlQname_L
+        elif priority == 'ERR':
+            theQ = self.sqlBHandler.sqlQname_ERR
 
         popped = self.sqlBHandler.redis_client.blpop(theQ, 1)
         if not popped:
@@ -289,15 +379,18 @@ class MonkeeSQLblockWorker:
             dataFromRedis = json.loads(popped[1], cls=mu.RoundTripDecoder)
             numRetries = mu.getval(dataFromRedis, "numRetries", 0)
             lastExecAttempt = mu.getval(dataFromRedis, "lastExecAttempt")
+            remainInErrorQUntil = mu.getval(
+                dataFromRedis, "remainInErrorQUntil", datetime.now())
             if numRetries == 0:
                 return dataFromRedis, False
             # elif lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=1.5 ** numRetries):
-            elif lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=2 * numRetries):
+            elif priority in ['H', 'M', 'L'] and lastExecAttempt and datetime.now() >= lastExecAttempt + timedelta(seconds=2 * numRetries):
+                return dataFromRedis, False
+            elif priority in ['ERR'] and remainInErrorQUntil and datetime.now() >= remainInErrorQUntil:
                 return dataFromRedis, False
             else:
                 sqlB = MonkeeSQLblock()
                 sqlB.makeFromSerial(serial_=dataFromRedis)
-                time.sleep(numRetries)
                 self.sqlBHandler.toQ(sqlB, priority=priority)
 
         return None, True
@@ -309,15 +402,10 @@ class MonkeeSQLblockWorker:
             theQ = self.sqlBHandler.sqlQname_M
         elif priority == 'L':
             theQ = self.sqlBHandler.sqlQname_L
+        elif priority == 'ERR':
+            theQ = self.sqlBHandler.sqlQname_ERR
 
         return self.sqlBHandler.redis_client.llen(theQ)
-
-    def sendFlare(self, messageData='awaken'):
-        data = messageData.encode("utf-8")
-        if self.sqlBHandler.pubsub:
-            future = self.sqlBHandler.pubsub.publish(self.topic_path, data)
-            res = future.result()
-            print(f"Published message {res} to {self.topic_path}.")
 
     def sortBatch(self, batch):
         batchDict = {}
@@ -344,14 +432,6 @@ class MonkeeSQLblockWorker:
                             [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt])
             elif isTransaction == 1:
                 # if this is a transaction, there is no batching. This implies that the sqb (containing the transaction) can be passed through directly.
-                # TODO: add the line's queries to an atomic transaction block. transactionList is a list of [query, line["insertList"], numRetries, maxRetries, soloExecution, lastExecAttempt] lines that are all executed as one transaction
-                """sqbs = mu.getval(line, 'transactionSqb', [])
-                transaction_i = []
-                for sqb in sqbs:
-                    transaction_i.append([sqb["query"], sqb["insertList"], sqb["numRetries"],
-                                          sqb["maxRetries"], sqb["soloExecution"], sqb["lastExecAttempt"]])
-                transactionList.append(transaction_i)
-                """
                 transactionList.append(line)
 
         for q in batchDict:
@@ -363,7 +443,7 @@ class MonkeeSQLblockWorker:
 
         if self.reportCollectionRef:
             priorities = ['H', 'M', 'L']
-            qDict = {'qCheckTime': datetime.now(timezone.utc)}
+            qDict = {'qCheckTime': datetime.now()}
             for priority in priorities:
                 qArray = []
 
@@ -388,18 +468,17 @@ class MonkeeSQLblockWorker:
                     qArray.append(elementParsed)
 
                 qDict[qcontentKey] = qArray
-            docUid = str(1625607464 * 3 - int(time.time()))
+            docUid = mu.makeAscendingUid()
 
             self.reportCollectionRef.document(docUid).set(qDict)
 
     def goToWork(self, forHowLong=60, inactivityBuffer=10, batchSize=50):
-        print(f'XXX goingToWork. ForHowLong={forHowLong}')
+        print(f'XXX goingToWork. ForHowLong={forHowLong} s')
         priorities = ['H', 'M', 'L']
-        startTs = datetime.now(timezone.utc)
+        startTs = datetime.now()
         i = 0
         howLong = 0
         self.reportOnQueues()
-        # High Priority
 
         for priority in priorities:
             queuesAreEmpty = False
@@ -428,16 +507,8 @@ class MonkeeSQLblockWorker:
                         transactionSqb=transaction_i['transactionSqb'])
                     self.executeBlock(sqb, priority=priority)
 
-                    """transactionBlock = []
-                    for transactionElement in transaction_i:
-                        sqb = MonkeeSQLblock(
-                            query=transactionElement[0], insertList=transactionElement[1], numRetries=transactionElement[2], maxRetries=transactionElement[3], soloExecution=transactionElement[4], lastExecAttempt=transactionElement[5])
-                        transactionBlock.append(sqb)
-                    self.executeBlock(transactionBlock)"""
-                    # TODO: do not pass an array (txBlock) to executeBlock. Pass the sqb and let executeBlock unpack the sqb's array
-
                 howLong = mu.dateDiff(
-                    'sec', startTs, datetime.now(timezone.utc))
+                    'sec', startTs, datetime.now())
                 #print(f'sqlw Running for how long: {howLong}')
                 qlen = self.getQLens(priority=priority)
                 if qlen == 0:
@@ -446,10 +517,40 @@ class MonkeeSQLblockWorker:
                     queuesAreEmpty = False
 
         if howLong >= forHowLong - inactivityBuffer and qlen > 0:
-            # numFlares = self.cypherQueues.totalInWaitingQueues / 10
-            #numFlares = 3
+            numFlares = 3
+            for k in range(numFlares):
+                self.sqlBHandler.sendFlare()
+
+    def goToWorkOnErrQ(self, forHowLong=60, inactivityBuffer=10):
+        """
+        An agent which pops elements from the ERR queue and repatriates these elements back to their original queues if they have served their time
+        in the error queue
+        """
+        print(f'XXX goingToWork. ForHowLong={forHowLong} s')
+        i = 0
+        howLong = 0
+        numErrorElements = self.getQLens(priority='ERR')
+        queuesAreEmpty = False
+
+        while howLong <= forHowLong - inactivityBuffer and i <= numErrorElements and not queuesAreEmpty:
+            i += 1
+            k = 0
+            sqlB, queuesAreEmpty = self.popNextBlock(priority='ERR')
+
+            if sqlB:
+                sqb = MonkeeSQLblock()
+                sqb.makeFromSerial(sqlB)
+                self.sqlBHandler.toQ(sqlB=sqb, priority=sqb.priority)
+
+            qlen = self.getQLens(priority='ERR')
+            if qlen == 0:
+                queuesAreEmpty = True
+            else:
+                queuesAreEmpty = False
+
+        if howLong >= forHowLong - inactivityBuffer and qlen > 0:
+            # Unsure if the ERR Q needs flares. Do not currently think so.
             numFlares = 0
             for k in range(numFlares):
                 print(f'sending flare (max {numFlares}) {k}')
-                self.sendFlare()
-                time.sleep(0.5)
+                self.sqlBHandler.sendFlare()

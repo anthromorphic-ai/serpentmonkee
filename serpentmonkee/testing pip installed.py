@@ -36,13 +36,13 @@ if __name__ == '__main__':
     project_id = "monkee-dev"  # <-- THE LOCAL DEV ENVIRONMENT
 
     if project_id == "monkee-prod":
-        credfp = "/Users/mindset/jsons/monkee-prod.json"
+        credfp = "/Users/lwicverhoef/gcp_jsons/monkee-prod-firebase-adminsdk-xvdxy-95ddc9c905.json"
     elif project_id == "monkee-dev":
-        credfp = "/Users/mindset/jsons/monkee-dev.json"
+        credfp = "/Users/lwicverhoef/gcp_jsons/monkee-dev-firebase-adminsdk-qw55p-b132b8a850.json"
         sqldb = sqlalchemy.create_engine(
             "postgresql+pg8000://postgres:pingping@localhost:1234/postgres")
     elif project_id == "monkee-int":
-        credfp = "/Users/mindset/jsons/monkee-int.json"
+        credfp = "/Users/lwicverhoef/gcp_jsons/monkee-int.json"
         sqldb = sqlalchemy.create_engine(
             "postgresql+pg8000://postgres:g3i92lfowE8c1ED7@localhost:1236/postgres"
         )
