@@ -166,7 +166,10 @@ class MonkeeRedis:
         try:
             if dataType in ["datetime", "datetimeNTZ"]:
                 fmt = self.inferDTFormat(val)
-                return datetime.strptime(val, fmt)
+                if fmt:
+                    return datetime.strptime(val, fmt)
+                else:
+                    return val
             elif dataType == "int":
                 return int(val)
             else:
@@ -230,5 +233,5 @@ class MonkeeRedis:
         for f in dtFormats:
             if len(re.findall(f["re"], dtString)) > 0:
                 return f["fmt"]
-
+        logging.error(f'MonkeeRedis.inferDTFormat ERROR: "{dtString}"  does not match any preset format. Value encountered for self.userUid={self.userUid}, self.appUid={self.appUid}')
         return None
