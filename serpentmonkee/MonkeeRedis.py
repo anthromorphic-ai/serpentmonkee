@@ -226,6 +226,8 @@ class MonkeeRedis:
         dtFormats.append({"re": re.compile(
             r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d*\+\d{2}:\d{2}$"), "fmt": "%Y-%m-%d %H:%M:%S.%f%z"})
         dtFormats.append({"re": re.compile(
+            r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\+\d{2}:\d{2}$"), "fmt": "%Y-%m-%d %H:%M:%S%z"})
+        dtFormats.append({"re": re.compile(
             r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d*$"), "fmt": "%Y-%m-%d %H:%M:%S.%f"})
         dtFormats.append({"re": re.compile(
             r"\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}$"), "fmt": "%Y-%m-%d %H:%M:%S"})
@@ -235,3 +237,11 @@ class MonkeeRedis:
                 return f["fmt"]
         logging.error(f'MonkeeRedis.inferDTFormat ERROR: "{dtString}"  does not match any preset format. Value encountered for self.userUid={self.userUid}, self.appUid={self.appUid}')
         return None
+
+if __name__=='__main__':
+    mr=MonkeeRedis(fb_db=None, cfName=None, redisClient=None)
+    val='2021-08-11 13:53:01+00:00'
+    fmt = mr.inferDTFormat(val)
+    dt = datetime.strptime(val, fmt)
+    print(fmt, str(dt))
+
