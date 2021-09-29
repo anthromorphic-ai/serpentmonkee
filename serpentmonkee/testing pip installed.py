@@ -11,14 +11,14 @@ import time
 from datetime import datetime, timedelta, timezone
 import json
 from google.cloud.firestore_v1.transforms import DELETE_FIELD
-from serpentmonkee import SecretMonkee, NeoMonkee
+from serpentmonkee import SecretMonkee #, NeoMonkee
 import sqlalchemy
 import pg8000
 import UtilsMonkee as um
 import redis
 from google.cloud import pubsub_v1
 from NeoDriver import NeoDriver
-# from NeoMonkee import NeoMonkee
+from NeoMonkee import NeoMonkee
 from serpentmonkee import PubSubMonkee
 
 from serpentmonkee import CypherTransactionBlock, CypherTransactionBlockWorker
@@ -33,19 +33,17 @@ from serpentmonkee import MonkeeSQLblock as msqlb, MonkeeSQLblockHandler
 
 if __name__ == '__main__':
 
-    project_id = "monkee-dev"  # <-- THE LOCAL DEV ENVIRONMENT
+    project_id = "monkee-prod"  # <-- THE LOCAL DEV ENVIRONMENT
 
     if project_id == "monkee-prod":
-        credfp = "/Users/lwicverhoef/gcp_jsons/monkee-prod-firebase-adminsdk-xvdxy-95ddc9c905.json"
+        credfp = os.environ["PROD_FP"]
+        localPort = 1235
     elif project_id == "monkee-dev":
-        credfp = "/Users/lwicverhoef/gcp_jsons/monkee-dev-firebase-adminsdk-qw55p-b132b8a850.json"
-        sqldb = sqlalchemy.create_engine(
-            "postgresql+pg8000://postgres:pingping@localhost:1234/postgres")
+        credfp = os.environ["DEV_FP"]
+        localPort = 1234
     elif project_id == "monkee-int":
-        credfp = "/Users/lwicverhoef/gcp_jsons/monkee-int.json"
-        sqldb = sqlalchemy.create_engine(
-            "postgresql+pg8000://postgres:g3i92lfowE8c1ED7@localhost:1236/postgres"
-        )
+        credfp = os.environ["INT_FP"]
+        localPort = 1236
 
     cred = credentials.Certificate(credfp)
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credfp
@@ -122,6 +120,8 @@ if __name__ == '__main__':
 
         neomnkee.asyncWrite(priority='M', appUid='app', docUid='docc')
 
+
+    test_readWrite()
     redisClient = redis.Redis()
 
     val1 = 't1'

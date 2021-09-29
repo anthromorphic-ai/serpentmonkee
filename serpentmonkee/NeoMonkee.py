@@ -281,4 +281,4 @@ class NeoMonkee:  # ------------------------------------------------------------
 
         except Exception as e:
             logging.error("saveToSql: {}".format(repr(e)))
-            raise
+            #raise
