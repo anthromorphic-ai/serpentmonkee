@@ -246,8 +246,10 @@ class MonkeeSQLblockWorker:
             dict_['detail'] = exception.detail
 
         if self.fb_db:
+            docuid = mu.makeAscendingUid()
             destDoc = self.fb_db.collection(
-                'logging/sqlQ/errors').document(mu.makeAscendingUid())
+                'logging/sqlQ/errors').document(docuid)
+            print(f'Error record will be written to Firebase as docUid={docuid}: {dict_}')
             destDoc.set(dict_)
 
     def executeBlock(self, sqlBlock, priority='L'):
@@ -270,33 +272,10 @@ class MonkeeSQLblockWorker:
                     )
                     # conn.commit()
 
-                    """
-                        except BrokenPipeError as e:
-                            logging.info(repr(e))
-                            sqlBlock.numRetries += 1
-                            sqlBlock.lastExecAttempt = datetime.now()
-                            if sqlBlock.retryAgain():
-                                # if this failed insertList is a batch, add each element of the batch separately and flag each for soloExecution
-                                if len(sqlBlock.insertList) >= 1 and isinstance(sqlBlock.insertList[0], list):
-                                    for element in sqlBlock.insertList:
-                                        sqlB = MonkeeSQLblock(
-                                            query=sqlBlock.query, insertList=element, numRetries=sqlBlock.numRetries, soloExecution=1, lastExecAttempt=sqlBlock.lastExecAttempt)
-                                        self.sqlBHandler.toQ(sqlB=sqlB, priority=priority)
-                                        print(
-                                            f'sqlBlock.numRetries = {sqlBlock.numRetries}')
-                                elif len(sqlBlock.insertList) >= 1:
-
-                                    self.sqlBHandler.toQ(sqlB=sqlBlock, priority=priority)
-
-                                err = f'{sqlBlock.numRetries} fails | {repr(e)} | Retrying SQL: {sqlBlock.query} | {sqlBlock.insertList} '
-                                logging.info(err)
-                            else:
-                                err = f'!! {sqlBlock.numRetries} fails | {repr(e)} | Abandoning SQL: {sqlBlock.query} | {sqlBlock.insertList}'
-                                logging.error(err)
-
-                            self.sqlClient.dispose()"""
-
         except sqlalchemy.exc.ProgrammingError as e:
+            self.logSqlErrorNoRetry(e, sqlBlock)
+        
+        except sqlalchemy.exc.IntegrityError as e:
             self.logSqlErrorNoRetry(e, sqlBlock)
 
         except Exception as e:
