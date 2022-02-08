@@ -20,7 +20,7 @@ from serpentmonkee.PubSubMonkee import PubSubMonkee
 
 class NeoDriver:  # --------------------------------------------------------------------
     def __init__(self, neoDriver=None, redisClient=None, publisher=None, projectId=None, topicId=None, callingCF=None, maxConnectionLifetime=3600,
-                 maxTransactionRetryTime=2):
+                 maxTransactionRetryTime=2, connectionTimeout=60, keepAlive=True, verbose=False):
         self.neoDriver = neoDriver
         self.driverUuid = None
         self.driverStartedAt = None
@@ -32,6 +32,9 @@ class NeoDriver:  # ------------------------------------------------------------
         self.pubsub = PubSubMonkee(publisher, projectId, topicId)
         self.maxConnectionLifetime = maxConnectionLifetime
         self.maxTransactionRetryTime = maxTransactionRetryTime
+        self.connectionTimeout=connectionTimeout
+        self.keepAlive=keepAlive
+        self.verbose=verbose
 
     def makeCypherQueues(self):
         cQH = CypherQueue("cypherQ_High")
@@ -50,8 +53,12 @@ class NeoDriver:  # ------------------------------------------------------------
         if neo_uri is not None:
             self.driverUuid = self.get_uuid()
             self.driverStartedAt = datetime.now(timezone.utc)
+            if self.verbose:
+                    print(f'serpentmonkee.makeNeoDriver: neoVersion = {neoVersion}')
 
             if neoVersion[0] == '4':
+                if self.verbose:
+                    print(f'serpentmonkee.makeNeoDriver: max_transaction_retry_time:{self.maxTransactionRetryTime}, max_connection_lifetime:{self.maxConnectionLifetime}, connection_timeout:{self.connectionTimeout}, keep_alive:{self.keepAlive}')
                 self.neoDriver = GraphDatabase.driver(
                     uri=neo_uri,
                     auth=basic_auth(
@@ -60,6 +67,8 @@ class NeoDriver:  # ------------------------------------------------------------
                     ),
                     max_transaction_retry_time=self.maxTransactionRetryTime,
                     max_connection_lifetime=self.maxConnectionLifetime,
+                    connection_timeout=self.connectionTimeout,
+                    keep_alive=self.keepAlive
 
                 )
             if neoVersion[0] == '1':

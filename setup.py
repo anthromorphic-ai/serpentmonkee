@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
     name='serpentmonkee',  # How you named your package folder (MyLib)
     packages=['serpentmonkee'],  # Chose the same as "name"
-    version='5.0.10',  # Start with a small number and increase it with every change you make
+    version='5.0.12',  # Start with a small number and increase it with every change you make
     # Chose a license from here: https://help.github.com/articles/licensing-a-repository
     license='MIT',
     # Give a short description about your library
@@ -12,14 +12,15 @@ setup(
     # Provide either the link to your github or to your website
     url='https://github.com/anthromorphic-ai/serpentmonkee',
     # I explain this later on
-    download_url='https://github.com/anthromorphic-ai/serpentmonkee/archive/5.0.10.tar.gz',
+    download_url='https://github.com/anthromorphic-ai/serpentmonkee/archive/5.0.12.tar.gz',
     # Keywords that define your package best
     keywords=['SOME', 'MEANINGFULL', 'KEYWORDS'],
     install_requires=['redis', 'neo4j==4.2.1',
                       'requests==2.23.0',
                       'python-dateutil==2.8.1',
                       'SQLAlchemy==1.3.16',
-                      'pg8000==1.15.2'],
+                      'pg8000==1.15.2',
+                      'pyparsing==2.4.7'],
     classifiers=[
         # Chose either "3 - Alpha", "4 - Beta" or "5 - Production/Stable" as the current state of your package
         'Development Status :: 3 - Alpha',
