@@ -15,8 +15,9 @@ setup(
     download_url='https://github.com/anthromorphic-ai/serpentmonkee/archive/5.0.12.tar.gz',
     # Keywords that define your package best
     keywords=['SOME', 'MEANINGFULL', 'KEYWORDS'],
-    install_requires=['redis', 'neo4j==4.2.1',
-                      'requests==2.23.0',
+    install_requires=['redis', 
+                      'neo4j==4.2.1',
+                      'requests==2.27.1',
                       'python-dateutil==2.8.1',
                       'SQLAlchemy==1.3.16',
                       'pg8000==1.15.2',
