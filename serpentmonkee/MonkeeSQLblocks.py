@@ -65,7 +65,7 @@ class MonkeeSQLblockHandler:
         if self.pubsub and flareSendable:
             self.redis.set_project_human_val(
                 'SQLHandlerFlareSendTime', 'datetime', rightNow)
-            print(f'sending flare!')
+            print(f'MonkeeSQLblockHandler: sending "{messageData}" flare to PubSub topic {self.topic_path}')
             future = self.pubsub.publish(self.topic_path, data)
             future.result()
 
