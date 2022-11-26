@@ -22,7 +22,7 @@ setup(
                       'SQLAlchemy==1.3.16',
                       'pg8000==1.15.2',
                       'pyparsing==2.4.7',
-                      'grpcio==1.45.0'],
+                      'grpcio'],
     classifiers=[
         # Chose either "3 - Alpha", "4 - Beta" or "5 - Production/Stable" as the current state of your package
         'Development Status :: 3 - Alpha',
